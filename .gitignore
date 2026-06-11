@@ -1,0 +1,17 @@
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# NassakhRTL build artifacts (local only)
+*.exe
+*.dll
+*.pdb
+
+# Local settings backup
+settings.ini
+
+# Editors
+.vscode/
+*.suo
+*.user
