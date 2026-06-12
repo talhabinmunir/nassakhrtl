@@ -6,6 +6,131 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.0.2] — 2026-06-12
+
+### Fixed
+
+- **Long paragraphs appeared with inverted line order in Affinity after Ctrl+Alt+F
+  (and after Ctrl+Alt+R with manual paste — same root cause).** A wrapping paragraph
+  is one logical line; converting it produces one long visual-order string, and when
+  Affinity re-wraps that string the first chunk on line 1 is the reversed END of the
+  text — so the paragraph reads bottom-to-top. This is inherent to visual-order text:
+  line breaks must be fixed BEFORE conversion.
+
+### Added
+
+- New option, on by default: **"Break long paragraphs into lines of [N] chars"**
+  (default 70, range 20–200). Long lines are hard-broken at word boundaries before
+  conversion, so every line is independently correct and reading order is preserved.
+  Applies to Quick Fix, Ctrl+Alt+R, and Ctrl+Alt+F. Never applied inside SVG text
+  nodes (their positioning is absolute).
+- Usage notes: set paragraph alignment to RIGHT in Affinity for multi-line text;
+  if a line still re-wraps in a narrow frame, reduce N.
+
+### Verified
+
+- 45/45 tests pass, including: first output line holds the START of the text, last
+  line holds the END, restore+rejoin is lossless, oversized single words hard-cut
+  without loss, wrapping excluded from SVG file editing.
+- The exact demo paragraph from the bug report (561 letters) rendered in a
+  bidi-disabled Affinity emulation reads top-to-bottom identically to the reference.
+
+---
+
+## [2.0.1] — 2026-06-12
+
+### Fixed
+
+- **Quick Fix tab controls invisible on Windows.** All v1 controls (options checkboxes,
+  Convert + Copy, Fix clipboard, Restore, presets, history, status) were positioned using
+  bottom-anchoring against an estimated tab size; on Windows, tab pages start at a tiny
+  default size before first layout, so every bottom-anchored control landed below the
+  visible window. Layout is now computed explicitly from the live page size on every
+  resize — deterministic on all Windows versions.
+- **Raw SVG markup could be converted as plain text and pasted into Affinity as literal
+  XML.** The Files tab always wrote correct XML, but the plain-text paths (Import button,
+  pasting a whole file into the input box, clipboard hotkeys) accepted markup. Now:
+  - Importing or pasting SVG/XML content into Quick Fix automatically routes it to the
+    Files tab, where only text content inside `<text>` elements is fixed
+  - Convert + Copy, Ctrl+Alt+R, and Ctrl+Alt+F refuse markup with a clear message —
+    nothing is converted, nothing is pasted
+
+### Added
+
+- **Copy fixed text** button on the Files tab — copies ONLY the selected item's corrected
+  plain text to the clipboard for pasting into an Affinity text box. Never copies markup.
+- Files tab footer now states exactly what each save action does (Save As = new file,
+  Overwrite = .bak kept, Copy fixed text = text only).
+- SVG saves now preserve the source file's exact `<?xml ...?>` declaration so fixed files
+  diff cleanly against originals.
+
+### Verified
+
+- 36/36 tests pass, including two new guarantees requested in the bug report:
+  a no-change save is **byte-identical** to the input file, and a fixed file differs
+  from the input **only at the text node values** — all attributes, transforms, and
+  styles untouched.
+
+---
+
+## [2.0.0] — 2026-06-12
+
+### In-Affinity text-box hotkeys (headline feature)
+
+- **Ctrl + Alt + F** — fix the Affinity text box you are typing in, with one keypress.
+  NassakhRTL selects the box content, converts it, and pastes it back automatically.
+  Your previous clipboard is preserved.
+- **Ctrl + Alt + Z** — restore a converted text box back to normal editable text.
+- Safety: if no text is captured, if the box has no RTL text, or if it is already
+  converted — nothing is pasted and nothing changes. A tray notification explains why.
+- Why not fully automatic "fix while typing": converted text cannot be edited incrementally.
+  Any auto-fix firing while the user keeps typing corrupts the text box. The hotkey gives
+  the same speed with the user in control. Full assessment in the repo discussion thread.
+
+### Files tab — SVG / TXT editor
+
+- Open or drop an exported `.svg` or `.txt` file
+- Lists every RTL text item with element/layer name and change count
+- Side-by-side review: original (Windows rendering) vs fixed (Affinity-accurate preview)
+- Approve items individually or all at once via checkboxes
+- **Apply → Save As** — source file is never touched
+- **Apply → Overwrite** — overwrites source with a `.bak` copy always kept first
+- Exportable fix report (.txt) for client sign-off
+- Note: native `.afdesign` editing is not offered — the format has no public specification
+  and writing it without a spec risks corrupting client files. Supported round-trip:
+  Affinity → Export SVG (Text as text) → fix in NassakhRTL → open fixed SVG in Affinity.
+
+### Folder Watcher tab
+
+- Watch a project folder for new or changed `.txt` / `.svg` exports
+- Fixes RTL text automatically in the background
+- Always keeps a `.bak` of the original (configurable)
+- Skips non-RTL files and already-converted files silently
+- Never double-converts; ignores its own writes
+- Activity log + tray balloon notifications
+- Watcher state and folder are persisted — resumes on next launch if it was running
+
+### System tray
+
+- App minimizes to tray (window close still exits; use tray → Exit to fully quit)
+- Tray menu: open window, fix clipboard, toggle watcher on/off, exit
+- Balloon notifications for all hotkey results and watcher activity
+
+### Other improvements
+
+- Third global hotkey added: Ctrl + Alt + Z (restore active text box)
+- Settings persistence extended: watcher folder, watcher state, bak preference
+- Fix report export added to Files tab
+- About dialog updated to v2.0
+
+### Zero regression
+
+All v1 Quick Fix tab functionality — engine, options, presets, history, import/export,
+Ctrl+Alt+R, Ctrl+Enter, Ctrl+Shift+V — is unchanged and re-verified.
+28/28 tests pass including live watcher file-event tests.
+
+---
+
 ## [1.0.0] — 2026-06-11
 
 ### First public release
@@ -16,53 +141,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Persian / Farsi extended letters: پ چ ژ گ and others
 - Urdu extended letters: ٹ ڈ ڑ ں ھ ہ ی ے
 - Hebrew: correct visual reversal (no shaping needed)
-- Visual reorder: each line reversed into LTR visual order; Latin runs and numbers kept in original order; bracket mirroring
-- ZWNJ-aware shaping: Zero-Width Non-Joiner is applied during shaping (to break joining in Persian correctly) then removed
+- Visual reorder: each line reversed into LTR visual order; Latin runs stay in place; bracket mirroring
+- ZWNJ-aware shaping: Zero-Width Non-Joiner applied during shaping then removed
 - Round-trip restore: every conversion is reversible back to original logical text
 
 **Text normalisation options**
 - Arabic-Indic and Persian-Indic digits → Western 0-9
 - Arabic percent sign ٪ → %
 - Hidden / zero-width character removal (ZWSP, BOM, LRM, RLM, direction controls)
-- Diacritic removal: Arabic harakat + Hebrew niqqud (optional, off by default)
-- Tatweel ـ removal (optional, off by default)
+- Diacritic removal: Arabic harakat + Hebrew niqqud (optional)
+- Tatweel ـ removal (optional)
 - Arabic punctuation → Latin ، ; ؟ → , ; ? (optional)
-- Alef unification أ إ آ → ا (optional, labeled "changes spelling")
-- Ya / ta marbuta normalisation ى ة (optional, labeled "changes spelling")
+- Alef unification أ إ آ → ا (optional, labeled changes spelling)
+- Ya / ta marbuta normalisation ى ة (optional, labeled changes spelling)
 
 **UI**
 - Affinity Preview panel: bidi-disabled LTR glyph rendering matching Affinity exactly
 - Character inspector: click any glyph to see Unicode codepoint, official name, and source letter
 - Real-time preview with 160 ms debounce
 - Dark and light theme, persistent
-- NassakhRTL logo and icon embedded (no external assets needed)
-- Drag-and-drop: .txt files onto app window or input box
-- File import (.txt, .csv, .json)
-- File export (.txt, .json with original + converted + metadata)
-- Named presets: save, load, delete option configurations
-- Session history: last 10 conversions
-- Settings persistence: theme, options, presets, window position saved to `%APPDATA%\NassakhRTL\settings.ini`
+- NassakhRTL logo and icon embedded
+- Drag-and-drop .txt files
+- File import (.txt, .csv, .json) and export (.txt, .json with metadata)
+- Named presets, session history
+- Settings persistence
 
 **Shortcuts**
 - Global hotkey Ctrl + Alt + R: fix clipboard from any application
 - Ctrl + Enter: Convert + Copy
 - Ctrl + Shift + V: paste-and-fix
 
-**Technical**
-- Zero dependencies: runs on any Windows 10/11 machine with PowerShell 5.1
-- No installation required
-- No network calls, no telemetry, fully offline
-- Engine verified byte-identical to reference JavaScript implementation across 8 test cases
-- 10 unit tests covering all option paths, ZWNJ shaping, round-trips, and the Unicode name inspector
-
 ---
 
 ## Roadmap
 
-Planned for future versions:
-
-- v1.1: system-tray mode (minimize to tray instead of taskbar)
-- v1.1: font compatibility checker (detect if current Affinity font supports Arabic glyphs)
-- v1.2: batch processing (convert a folder of .txt files)
-- v1.2: fix statistics report exportable as PDF for client handoff
-- v2.0: self-contained .exe (no PowerShell dependency)
+- v2.1: font compatibility checker (warn if Affinity text frame font lacks Arabic glyphs)
+- v2.1: batch processing queue for multiple text blocks
+- v2.2: self-contained .exe built with .NET SDK (eliminates ps2exe dependency)
+- Future: native .afdesign support if Serif publishes the file format specification

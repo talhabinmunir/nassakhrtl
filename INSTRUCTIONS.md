@@ -1,263 +1,323 @@
 # NassakhRTL — Instructions
 
-Full usage guide for **NassakhRTL 1.0**
+Full usage guide for **NassakhRTL 2.0**
 
 ---
 
 ## Contents
 
 1. [Setup](#1-setup)
-2. [Basic workflow](#2-basic-workflow)
-3. [The Affinity Preview panel](#3-the-affinity-preview-panel)
-4. [Options explained](#4-options-explained)
-5. [Hotkey and keyboard shortcuts](#5-hotkey-and-keyboard-shortcuts)
-6. [Presets](#6-presets)
-7. [History](#7-history)
-8. [Import and export](#8-import-and-export)
-9. [Restoring Affinity text](#9-restoring-affinity-text)
-10. [Settings and themes](#10-settings-and-themes)
-11. [Running on startup](#11-running-on-startup)
-12. [Troubleshooting](#12-troubleshooting)
+2. [Fix text inside Affinity — Ctrl+Alt+F](#2-fix-text-inside-affinity--ctrlaltf)
+3. [Classic clipboard workflow](#3-classic-clipboard-workflow)
+4. [The Affinity Preview panel](#4-the-affinity-preview-panel)
+5. [Files tab — SVG and TXT editor](#5-files-tab--svg-and-txt-editor)
+6. [Folder Watcher](#6-folder-watcher)
+7. [System tray](#7-system-tray)
+8. [Options explained](#8-options-explained)
+9. [Hotkeys and keyboard shortcuts](#9-hotkeys-and-keyboard-shortcuts)
+10. [Presets](#10-presets)
+11. [History](#11-history)
+12. [Import and export](#12-import-and-export)
+13. [Restoring converted text](#13-restoring-converted-text)
+14. [Settings and themes](#14-settings-and-themes)
+15. [Running on startup](#15-running-on-startup)
+16. [Troubleshooting](#16-troubleshooting)
 
 ---
 
 ## 1. Setup
 
-1. Download `NassakhRTL.bat` and `NassakhRTL.ps1`.
-2. Put both files in the same folder — for example `C:\Tools\NassakhRTL\`.
-3. Double-click `NassakhRTL.bat`.
+1. Download `NassakhRTL.exe` (or `NassakhRTL.bat` + `NassakhRTL.ps1` if you prefer source).
+2. Put the file(s) in any folder, e.g. `C:\Tools\NassakhRTL\`.
+3. Double-click `NassakhRTL.exe` to launch.
 
-The app opens as a small always-on-top window. It compiles itself on first launch using PowerShell's built-in C# compiler, which takes 3–5 seconds. Subsequent launches are the same speed.
+The app opens and an icon appears in your system tray. Minimize the window — NassakhRTL keeps running in the background.
 
 ### SmartScreen warning
 
-Windows may show a blue "Windows protected your PC" dialog. This appears for any new, unsigned executable. Click **More info**, then **Run anyway**. You can inspect the full source code in `NassakhRTL.ps1` before running.
+Windows may show "Windows protected your PC." Click **More info → Run anyway.** This appears for any new unsigned executable. The full source code is in `NassakhRTL.ps1`.
 
 ---
 
-## 2. Basic workflow
+## 2. Fix text inside Affinity — Ctrl+Alt+F
 
-### Option A — Global hotkey (recommended)
+This is the v2 headline feature. No copy-paste needed.
 
-This is the fastest method. No window switching required.
+**Workflow:**
 
-1. Keep NassakhRTL open (minimized is fine).
-2. In any application, select and copy RTL text (Ctrl + C).
-3. Press **Ctrl + Alt + R** — you will hear a chime.
-4. Switch to Affinity and paste (Ctrl + V).
+1. In Affinity, double-click a text frame to enter text editing mode.
+2. Type or paste your Arabic, Urdu, Persian, or Hebrew text normally.
+3. Press **Ctrl + Alt + F** (release the keys fully before pressing F).
+4. NassakhRTL selects all text in the box, converts it, and pastes it back.
+5. You will hear a chime and see a tray notification confirming the fix.
 
-The clipboard is converted in place. You never need to touch the NassakhRTL window.
+**Safety behaviour:**
 
-### Option B — App window
+- If the text box has no RTL text — nothing is changed, notification says why.
+- If the text box is already converted — nothing is changed.
+- If the selection fails (e.g. you pressed the hotkey on the canvas, not inside a text box) — nothing is pasted, notification explains.
+- Your clipboard before pressing the hotkey is always restored afterward.
 
-1. Paste your text into the **Input** box (it supports Arabic right-to-left display).
-2. Watch the **Affinity Preview** panel update in real time.
-3. Click **⚡ Convert + Copy**.
+**Restoring a converted text box for re-editing:**
+
+Press **Ctrl + Alt + Z** while in the converted text box. NassakhRTL restores it to normal logical text so you can edit it again. When done editing, press Ctrl + Alt + F again.
+
+**Important:** Press the hotkey only after you have finished typing. The conversion changes the letter forms — typing more characters after a conversion will insert them in the wrong position.
+
+**Long paragraphs (multi-line text):**
+
+A paragraph that wraps across several lines needs hard line breaks before conversion — otherwise Affinity re-wraps the converted text and the lines come out in reverse order (last sentence on top). NassakhRTL handles this automatically: the option **"Break long paragraphs into lines of [70] chars"** is on by default.
+
+For best results with paragraphs:
+1. Set the Affinity paragraph alignment to **Right** (converted Arabic lines should align right).
+2. Make the text frame wide enough for 70-character lines at your font size — or lower the number to match a narrower frame.
+3. If one line still wraps inside the frame, reduce the character count and run Ctrl+Alt+Z then Ctrl+Alt+F again.
+
+---
+
+## 3. Classic clipboard workflow
+
+This is the v1 method. Still works exactly the same.
+
+1. Copy RTL text from anywhere (Ctrl + C).
+2. Press **Ctrl + Alt + R** — you will hear a chime.
+3. Switch to Affinity and paste (Ctrl + V).
+
+Or use the app window:
+1. Paste text into the Input box.
+2. Check the Affinity Preview panel.
+3. Click **Convert + Copy**.
 4. Paste into Affinity.
 
-### Option C — Paste and fix shortcut
+---
 
-1. Copy RTL text from anywhere.
-2. Press **Ctrl + Shift + V** while NassakhRTL is focused — this pastes the text into the input box and immediately converts it.
-3. Paste into Affinity.
+## 4. The Affinity Preview panel
+
+The preview panel draws each glyph left-to-right with no bidi engine — exactly how Affinity renders text. What you see in the preview is exactly what you will see after pasting into Affinity.
+
+**Character inspector:** Click any letter in the preview panel to see its Unicode codepoint, official name, and the base letter it came from.
 
 ---
 
-## 3. The Affinity Preview panel
+## 5. Files tab — SVG and TXT editor
 
-The preview panel below the input box does not use a bidi rendering engine. It draws each glyph individually from left to right — exactly how Affinity renders text. What you see in the preview is exactly what you will see after pasting into Affinity.
+Use this when you want to fix a whole exported file — not just one text box.
 
-### Character inspector
+**Affinity export step (do this first in Affinity):**
 
-Click any letter in the preview panel to inspect it. The inspector bar shows:
+Go to **File → Export → SVG**. In the SVG options, make sure **Text** is set to **"As text"** (not "As curves"). This keeps text as editable XML that NassakhRTL can read.
 
-- **Unicode codepoint** — e.g. `U+FE91`
-- **Unicode name** — e.g. `ARABIC LETTER BEH INITIAL FORM`
-- **Source letter** — e.g. `[from ب]`
+**In NassakhRTL:**
 
-This is useful when debugging why a specific character looks wrong, or for client documentation.
+1. Click the **Files (SVG / TXT)** tab.
+2. Click **Open SVG / TXT...** or drag and drop a file onto the window.
+3. The list shows every RTL text item found — with element name and change count.
+4. Click any item to see the original and fixed versions in the panels below.
+5. Tick or untick items to include or exclude them from the fix.
+6. Click **Check all** or **Uncheck all** for bulk selection.
+
+**Saving:**
+
+- **Apply → Save As** — saves a new file; your original is never touched.
+- **Apply → Overwrite (.bak kept)** — overwrites the source file but saves a `.bak` copy next to it first. A confirmation dialog appears before this runs.
+
+**Fix report:**
+
+Click **Export fix report** to save a plain text record of every item, the change count, original text, and fixed text. Useful for client approval sign-off.
+
+**After saving:**
+
+Open the fixed SVG back in Affinity via **File → Place** or **File → Open**. The text will render correctly.
+
+**Note about fixed SVGs in browsers:** The converted text inside the SVG is in visual order for a left-to-right renderer. If you open the fixed SVG in Chrome or Firefox it will look reversed — this is correct. It is designed for Affinity, not browsers.
 
 ---
 
-## 4. Options explained
+## 6. Folder Watcher
+
+Automates the fix for whole projects. Once set up, every file you export from Affinity is fixed automatically.
+
+**Setup:**
+
+1. Click the **Folder Watcher** tab.
+2. Click **Browse** and select your project export folder.
+3. Leave **Keep a .bak copy** checked (recommended).
+4. Click **Start watching**.
+
+**What happens:**
+
+When you export a `.txt` or `.svg` from Affinity into that folder, NassakhRTL detects it within 1 second, fixes it, keeps a `.bak` of the original, logs the action, and shows a tray notification.
+
+**Smart skipping:**
+
+- Files with no RTL text are left untouched (silently).
+- Files that are already in Affinity visual-order format are skipped.
+- NassakhRTL ignores files it just wrote itself to prevent double-conversion.
+
+**Stopping and resuming:**
+
+Click **Stop watching** to pause. If the watcher was running when you closed the app, it restarts automatically on next launch.
+
+---
+
+## 7. System tray
+
+NassakhRTL runs in the system tray when minimized. Right-click the tray icon for:
+
+- **Open NassakhRTL** — bring the window back
+- **Fix clipboard now** — same as Ctrl+Alt+R
+- **Folder watcher** — toggle on/off without opening the window
+- **Exit** — fully close the app
+
+When the watcher fixes a file or a hotkey runs, a balloon notification appears. These disappear automatically after 2.5 seconds.
+
+---
+
+## 8. Options explained
+
+Options are on the **Quick Fix** tab. They apply to all conversion modes — clipboard, hotkeys, file editor, and watcher.
 
 | Option | Default | What it does |
 |---|---|---|
-| **Arabic digits → 0-9** | On | Converts ٠١٢٣٤٥٦٧٨٩ (Arabic-Indic) and ۰۱۲۳۴۵۶۷۸۹ (Persian) to Western digits. Also converts ٪ to %. |
-| **Remove hidden characters** | On | Strips zero-width space (ZWSP), byte-order mark (BOM), left-to-right mark (LRM), and Unicode direction controls (RLO, LRE, etc.) that are invisible but corrupt visual order. |
-| **Remove diacritics** | Off | Strips Arabic harakat (fatha, kasra, damma, shadda, tanwin, sukun) and Hebrew niqqud. Turn on when the receiving font does not support diacritics or when you want plain text. |
-| **Remove tatweel** | Off | Strips the Arabic elongation mark ـ (U+0640). Some typefaces render it incorrectly in visual-order mode. |
-| **، ؛ ؟ → Latin , ; ?** | Off | Replaces Arabic punctuation with Latin equivalents. Useful when the Affinity text frame uses a Latin font. |
-| **Unify alef أ إ آ → ا** | Off | Normalizes all alef variants to bare alef. **Changes spelling** — only use for specific typography use cases, not for published text. |
-| **ى → ي and ة → ه** | Off | Normalizes ya and ta marbuta variants. **Changes spelling** — same caveat as above. |
-| **Stay on top** | On | Keeps the NassakhRTL window above all other windows. Uncheck if it gets in the way of other apps. |
-
-Options are saved automatically when you close the app.
+| **Arabic digits → 0-9** | On | Converts ٠١٢٣٤٥٦٧٨٩ and ۰۱۲۳۴۵۶۷۸۹ to Western digits. Also converts ٪ to %. |
+| **Remove hidden characters** | On | Strips ZWSP, BOM, LRM, and Unicode direction controls. |
+| **Remove diacritics** | Off | Strips Arabic harakat and Hebrew niqqud. |
+| **Remove tatweel** | Off | Strips the Arabic elongation mark ـ. |
+| **، ؛ ؟ → Latin , ; ?** | Off | Replaces Arabic punctuation with Latin equivalents. |
+| **Unify alef أ إ آ → ا** | Off | Normalizes alef variants. **Changes spelling.** |
+| **ى → ي and ة → ه** | Off | Normalizes ya and ta marbuta variants. **Changes spelling.** |
+| **Stay on top** | On | Window stays above all other windows. |
 
 ---
 
-## 5. Hotkey and keyboard shortcuts
+## 9. Hotkeys and keyboard shortcuts
 
 | Shortcut | Where | Action |
 |---|---|---|
-| **Ctrl + Alt + R** | Anywhere (global) | Fix clipboard — converts whatever text is copied, with a chime confirmation |
+| **Ctrl + Alt + F** | Anywhere (global) | Fix the Affinity text box you are in |
+| **Ctrl + Alt + Z** | Anywhere (global) | Restore the Affinity text box to editable text |
+| **Ctrl + Alt + R** | Anywhere (global) | Fix the clipboard |
 | **Ctrl + Enter** | NassakhRTL window | Convert + Copy |
-| **Ctrl + Shift + V** | NassakhRTL window | Paste clipboard text and immediately convert |
+| **Ctrl + Shift + V** | NassakhRTL window | Paste clipboard and immediately convert |
 
-### If Ctrl + Alt + R is not working
+**If Ctrl+Alt+F does not work:**
 
-Another app on your system has registered the same hotkey. The NassakhRTL status bar will say "Hotkey Ctrl+Alt+R not available". The buttons and in-window shortcuts still work.
+Another app has registered that hotkey combination. The status bar will say the hotkey is not available. Use the window buttons or try Ctrl+Alt+R as a fallback.
 
----
+**Timing note for Ctrl+Alt+F:**
 
-## 6. Presets
-
-Presets save your current option settings under a name. Useful when you work with multiple clients or languages that need different configurations.
-
-**Saving a preset:**
-
-1. Set the options the way you want them.
-2. Click the **+** button next to the Preset dropdown.
-3. Type a name and click OK.
-
-**Loading a preset:**
-
-Select it from the Preset dropdown — options update immediately.
-
-**Deleting a preset:**
-
-Select it from the dropdown, then click **−**.
-
-**Examples of useful presets:**
-
-- `Arabic Standard` — digits on, diacritics off, all else off
-- `Arabic With Harakat` — digits on, diacritics off (keep them), all else off
-- `Hebrew` — all Arabic options off
-- `Urdu Print` — digits on, tatweel removed
+Release Ctrl, Alt, and F fully before expecting the fix to run. NassakhRTL waits for the modifier keys to be released before sending any simulated keys, to prevent the hotkey chord from interfering with the text selection.
 
 ---
 
-## 7. History
+## 10. Presets
 
-The History dropdown shows your last 10 conversions. Each entry shows the time and a preview of the original text.
+Save your current option settings under a name.
 
-Select any entry to reload the original text into the input box and re-run the conversion with current settings.
+- Click **+** to save a preset. Give it a name.
+- Select a preset from the dropdown to load it.
+- Click **−** to delete the selected preset.
 
-History is session-only — it resets when you close the app.
-
----
-
-## 8. Import and export
-
-### Import
-
-Click **Import** to open a .txt, .csv, or .json file. The file content loads into the input box. You can also drag and drop a .txt file directly onto the app window or the input box.
-
-### Export
-
-Click **Export** for three options:
-
-**Copy converted text** — same as Convert + Copy.
-
-**Save as .txt** — saves the converted text as a UTF-8 plain text file.
-
-**Save as .json** — saves a record with:
-- App name and version
-- Timestamp
-- Options used (as a compact bit string)
-- Original text
-- Converted text
-
-The JSON export is useful for client documentation — it records exactly what was changed and when.
+Useful when you work across clients who need different configurations — for example one client needs digits converted and diacritics kept, another needs diacritics stripped.
 
 ---
 
-## 9. Restoring Affinity text
+## 11. History
 
-If you have text that was already converted (visual-order, presentation-form glyphs) and need the normal editable version back:
+The History dropdown shows your last 10 clipboard conversions from the Quick Fix tab. Select any entry to reload the original text and re-run conversion with current settings.
 
-1. Copy the converted text.
-2. Click **↩ Restore**.
-3. The clipboard is restored to normal logical text and loaded into the input box.
-
-This works because the conversion is reversible: every presentation-form glyph maps back to its base letter, and line reversal is its own inverse.
+History is session-only — it clears when you close the app.
 
 ---
 
-## 10. Settings and themes
+## 12. Import and export
 
-### Theme
+**Import:** Click the Import button to open a `.txt`, `.csv`, or `.json` file into the Quick Fix input box. You can also drag and drop a `.txt` file onto the window.
 
-Click the **☽ / ☀** button in the header to toggle dark and light mode. The choice is saved and restored on next launch.
+**Export options (click Export button):**
 
-### Settings file
+- **Copy converted text** — same as Convert + Copy
+- **Save as .txt** — saves the converted text as UTF-8 plain text
+- **Save as .json** — saves a record with app version, timestamp, options used, original text, and converted text
 
-All settings are stored in:
+---
 
-```
-%APPDATA%\NassakhRTL\settings.ini
-```
+## 13. Restoring converted text
 
-You can open this file in Notepad. Format:
+If you need to edit text that is already in Affinity visual-order format:
 
+**From an Affinity text box:** Press **Ctrl + Alt + Z** while in the box.
+
+**From the clipboard:** Click **Restore** on the Quick Fix tab. The clipboard is restored to normal logical text.
+
+**From the Files tab:** Open the fixed SVG — the original text shows in the ORIGINAL panel. You can also keep the `.bak` file as a reference.
+
+---
+
+## 14. Settings and themes
+
+**Theme:** Click the moon/sun icon in the header to toggle dark and light mode.
+
+**Settings file:** `%APPDATA%\NassakhRTL\settings.ini`
+
+Format:
 ```ini
 theme=dark
 opts=1100000
 top=1
-win=200,100,580,720
+watchdir=C:\Projects\Client\exports
+watchon=1
+bak=1
+win=200,100,640,760
 preset.Arabic Standard=1100000
-preset.Urdu Print=1101000
 ```
 
-The `opts` field is a 7-character bit string corresponding to the 7 checkboxes in order: digits, remove hidden, remove diacritics, remove tatweel, punctuation to Latin, unify alef, normalize ya/ta.
-
-To reset all settings, delete the file or the folder.
+Delete the file to reset all settings.
 
 ---
 
-## 11. Running on startup
-
-To have NassakhRTL open automatically with Windows:
+## 15. Running on startup
 
 1. Press **Win + R**, type `shell:startup`, press Enter.
-2. In the Startup folder that opens, right-click → **New → Shortcut**.
-3. Browse to `NassakhRTL.bat` and click Finish.
+2. Right-click in the Startup folder → **New → Shortcut**.
+3. Browse to `NassakhRTL.exe` and click Finish.
 
-NassakhRTL will now open every time you log in, sitting quietly in the background ready for the hotkey.
+NassakhRTL opens automatically on login. The window starts minimized to the tray, ready for hotkeys.
 
 ---
 
-## 12. Troubleshooting
+## 16. Troubleshooting
 
-**The app does not open when I double-click the .bat**
+**App does not open when I double-click the .exe**
 
-Right-click `NassakhRTL.ps1` → **Run with PowerShell**. Any error message will appear in the console window. Copy the error and email it to tlhmunir@gmail.com.
+Right-click `NassakhRTL.ps1` → Run with PowerShell. Any error will appear in the console. Email the error to tlhmunir@gmail.com.
 
 **PowerShell says "running scripts is disabled"**
 
-Your system's execution policy blocks PowerShell scripts. Run this once in PowerShell as Administrator:
-
+Run once in PowerShell as Administrator:
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-Then try again.
+**Ctrl+Alt+F fires but the text box still looks broken after pasting**
 
-**Text pastes into Affinity but still looks broken**
+The font in the Affinity text frame does not contain Arabic glyphs. Set the frame font to **Arial** first, paste, then switch fonts. The glyphs are correct; the font was the issue.
 
-Make sure the text frame in Affinity uses a font that contains Arabic glyphs. Arial works reliably. If you are using a decorative or Latin-only font, the glyphs will show as boxes. Switch the frame font to Arial, paste, then change the font if needed — the glyphs will re-render.
+**Ctrl+Alt+F shows "No text captured"**
 
-**The hotkey Ctrl + Alt + R does not work**
+You pressed the hotkey while the cursor was on the Affinity canvas, not inside a text frame in text-editing mode. Double-click the text frame first, then press the hotkey.
 
-Another application has claimed that hotkey combination. Use the **Fix clipboard** button or the **Ctrl + Shift + V** shortcut instead.
+**Fixed SVG looks backwards in my browser**
 
-**Converted text shows boxes in the preview panel but not in Affinity**
+This is correct. The SVG text is in visual order for a left-to-right renderer (Affinity). Browsers have a proper bidi engine and render it reversed. Open it in Affinity — it will look correct.
 
-The preview panel in NassakhRTL uses Arial. If your system's Arial font is missing or corrupted, glyphs may show as boxes in the preview but still paste correctly. Reinstalling Arial from Microsoft's website fixes this.
+**Watcher fixed a file I did not want fixed**
 
-**Persian ZWNJ (نیم‌فاصله) — does NassakhRTL handle it?**
+Check the `.bak` file next to the original — it contains the pre-fix version. Rename it to restore. In future, either stop the watcher before exporting files you want to keep as-is, or uncheck items in the Files tab instead.
 
-Yes. ZWNJ (Zero-Width Non-Joiner) is used in Persian to break letter joining intentionally, as in می‌خواهم. NassakhRTL applies ZWNJ during shaping (so joining breaks correctly) and removes it afterward (so it does not interfere with visual order in Affinity). The result is correct non-joined forms.
+**Persian ZWNJ (نیم‌فاصله)**
+
+NassakhRTL applies ZWNJ during shaping (so joining breaks correctly, e.g. می‌خواهم) and removes it afterward. The result is correct non-joined forms in Affinity.
 
 ---
 

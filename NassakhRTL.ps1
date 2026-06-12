@@ -1,9 +1,12 @@
 # =====================================================================
-#  NassakhRTL 1.0  -  RTL text fixer for Affinity apps (Windows)
+#  NassakhRTL 2.0.2  -  RTL text fixer for Affinity apps (Windows)
 #  Arabic - Persian - Urdu - Hebrew
 #
-#  Start with:  NassakhRTL.bat  (same folder)
-#  Hotkey:      Ctrl+Alt+R converts the clipboard from anywhere.
+#  Start with:  NassakhRTL.bat  (same folder)  or build NassakhRTL.exe
+#  Hotkeys (global):
+#    Ctrl+Alt+R  fix the clipboard
+#    Ctrl+Alt+F  fix the Affinity text box you are typing in
+#    Ctrl+Alt+Z  restore the Affinity text box to editable text
 #  Settings:    %APPDATA%\NassakhRTL\settings.ini
 # =====================================================================
 
@@ -1014,6 +1017,11 @@ public class FixOptions {
     public bool PunctToLatin = false;
     public bool NormalizeAlef = false;
     public bool NormalizeYaTa = false;
+    // 0 = off. When > 0, long logical lines are hard-broken at word
+    // boundaries BEFORE conversion. Without this, a wrapping paragraph
+    // pasted into Affinity re-wraps the reversed string and the line
+    // order comes out bottom-to-top.
+    public int WrapWidth = 0;
 
     // serialize to/from a 7-char bit string for settings/presets
     public string ToBits() {
@@ -1186,6 +1194,19 @@ public static class Engine {
     }
 
     static Regex RtlLine = new Regex("[\u0590-\u08FF\uFB1D-\uFDFD\uFE70-\uFEFC]");
+    public static bool HasRtl(string s) { return s != null && RtlLine.IsMatch(s); }
+
+    // whole-file markup must never travel through the plain-text path:
+    // converting raw XML/SVG as text mangles it and pasting it into
+    // Affinity puts literal markup on the canvas
+    public static bool LooksLikeMarkup(string s) {
+        if (s == null) return false;
+        string t = s.TrimStart();
+        if (t.StartsWith("<?xml") || t.StartsWith("<!DOCTYPE") || t.StartsWith("<svg")
+            || t.StartsWith("<html") || t.StartsWith("<HTML")) return true;
+        if (t.StartsWith("<") && s.Contains("</") && s.Contains(">")) return true;
+        return false;
+    }
     static Regex LtrRun = new Regex("[A-Za-z0-9\u00C0-\u024F](?:[A-Za-z0-9\u00C0-\u024F .,:/@&#%+\\-]*[A-Za-z0-9\u00C0-\u024F%])?");
 
     static Dictionary<char, char> Mirror = new Dictionary<char, char> {
@@ -1315,6 +1336,8 @@ public static class Engine {
         if (o.RemoveTatweel) {
             t = StripSet(t, "\u0640\u0640", ref nTat);
         }
+        int nWrap = 0;
+        if (o.WrapWidth > 0) t = WrapLines(t, o.WrapWidth, ref nWrap);
 
         string shaped = Reshape(t, out nShape);
         // ZWNJ/ZWJ have done their joining work during shaping; drop them now
@@ -1331,9 +1354,31 @@ public static class Engine {
         if (nTat > 0) parts.Add(nTat.ToString() + " tatweel removed");
         if (nPunct > 0) parts.Add(nPunct.ToString() + " punctuation");
         if (nSpell > 0) parts.Add(nSpell.ToString() + " letters normalized");
-        r.Total = nShape + nDigits + nHidden + nDia + nTat + nPunct + nSpell;
+        if (nWrap > 0) parts.Add(nWrap.ToString() + " line breaks added");
+        r.Total = nShape + nDigits + nHidden + nDia + nTat + nPunct + nSpell + nWrap;
         r.Summary = parts.Count == 0 ? "no RTL letters found" : string.Join(", ", parts.ToArray());
         return r;
+    }
+
+    // hard-break long lines at word boundaries (logical order, pre-shaping)
+    public static string WrapLines(string text, int width, ref int count) {
+        string[] lines = text.Replace("\r\n", "\n").Split('\n');
+        List<string> outp = new List<string>();
+        foreach (string line in lines) {
+            if (line.Length <= width) { outp.Add(line); continue; }
+            int pos = 0;
+            while (line.Length - pos > width) {
+                int searchFrom = Math.Min(pos + width, line.Length - 1);
+                int brk = line.LastIndexOf(' ', searchFrom);
+                if (brk <= pos) brk = pos + width; // single word longer than width
+                outp.Add(line.Substring(pos, brk - pos).TrimEnd());
+                count++;
+                pos = brk;
+                while (pos < line.Length && line[pos] == ' ') pos++;
+            }
+            outp.Add(line.Substring(pos));
+        }
+        return string.Join("\n", outp.ToArray());
     }
 
     public static string Restore(string text) {
@@ -1546,7 +1591,7 @@ public class AboutDialog : Form {
         pic.Location = new Point(20, 20); pic.Size = new Size(380, 64);
         Controls.Add(pic);
         Label l = new Label();
-        l.Text = "NassakhRTL 1.0\r\n\r\nFixes RTL text for Affinity apps.\r\nArabic - Persian - Urdu - Hebrew.\r\nText shaping + visual reorder, fully offline, no telemetry.";
+        l.Text = "NassakhRTL 2.0\r\n\r\nFixes RTL text for Affinity apps.\r\nArabic - Persian - Urdu - Hebrew.\r\nText shaping + visual reorder, fully offline, no telemetry.";
         l.ForeColor = th.Text;
         l.Location = new Point(20, 96); l.Size = new Size(380, 84);
         l.TextAlign = ContentAlignment.MiddleCenter;
@@ -1582,68 +1627,404 @@ public static class AssetLoader {
     }
 }
 
+}
+
 // ------------------------------------------------------------------ //
-//  Main window
+//  NassakhRTL 2.0 additions: file editing, folder watcher, tray,
+//  in-Affinity text-box hotkeys. Conservative C# 5, ASCII source.
+// ------------------------------------------------------------------ //
+namespace RTLFixer {
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Text;
+using System.Threading;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+using System.Xml;
+
+// ------------------------------------------------------------------ //
+//  One fixable text item inside a file
+// ------------------------------------------------------------------ //
+public class TextFixItem {
+    public string Label = "";
+    public string Original = "";
+    public string Fixed = "";
+    public int Changes = 0;
+    public bool Apply = true;
+    public XmlNode Node = null;   // svg
+    public int LineIndex = -1;    // txt
+}
+
+// ------------------------------------------------------------------ //
+//  SVG / TXT file with RTL text items. Never writes over the source
+//  unless explicitly told to; SaveTo() can keep a .bak.
+// ------------------------------------------------------------------ //
+public class RtlFile {
+    public bool IsSvg = false;
+    public string SourcePath = "";
+    public List<TextFixItem> Items = new List<TextFixItem>();
+    XmlDocument xml = null;
+    List<string> lines = null;
+    string originalDecl = null; // exact <?xml ...?> line from the source, preserved on save
+
+    public static RtlFile Load(string path, FixOptions o) {
+        string content;
+        using (StreamReader r = new StreamReader(path, Encoding.UTF8, true)) content = r.ReadToEnd();
+        return FromContent(path, content, o);
+    }
+
+    public static RtlFile FromContent(string path, string content, FixOptions o) {
+        RtlFile f = new RtlFile();
+        f.SourcePath = path;
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        bool looksXml = content.TrimStart().StartsWith("<");
+        if (ext == ".svg" || (ext != ".txt" && looksXml)) {
+            f.LoadSvg(content);
+        } else {
+            f.LoadTxt(content);
+        }
+        f.Recompute(o);
+        return f;
+    }
+
+    void LoadSvg(string content) {
+        IsSvg = true;
+        int declEnd = content.IndexOf("?>");
+        if (content.TrimStart().StartsWith("<?xml") && declEnd > 0)
+            originalDecl = content.Substring(0, declEnd + 2);
+        xml = new XmlDocument();
+        xml.PreserveWhitespace = true;
+        xml.LoadXml(content);
+        int n = 0;
+        foreach (XmlNode textEl in FindTextElements(xml.DocumentElement)) {
+            string label = null;
+            XmlElement el = (XmlElement)textEl;
+            if (el.HasAttribute("id")) label = el.GetAttribute("id");
+            CollectTextNodes(textEl, label, ref n);
+        }
+    }
+
+    // all <text> elements anywhere in the tree (namespace-agnostic)
+    static List<XmlNode> FindTextElements(XmlNode root) {
+        List<XmlNode> outp = new List<XmlNode>();
+        if (root == null) return outp;
+        Stack<XmlNode> stack = new Stack<XmlNode>();
+        stack.Push(root);
+        while (stack.Count > 0) {
+            XmlNode node = stack.Pop();
+            if (node.NodeType == XmlNodeType.Element && node.LocalName == "text") {
+                outp.Add(node);
+                continue; // text nodes inside collected separately
+            }
+            foreach (XmlNode c in node.ChildNodes) stack.Push(c);
+        }
+        outp.Reverse();
+        return outp;
+    }
+
+    void CollectTextNodes(XmlNode el, string label, ref int n) {
+        foreach (XmlNode c in el.ChildNodes) {
+            if ((c.NodeType == XmlNodeType.Text || c.NodeType == XmlNodeType.CDATA)
+                && Engine.HasRtl(c.Value)) {
+                n++;
+                TextFixItem it = new TextFixItem();
+                it.Label = label != null ? label : ("text #" + n.ToString());
+                if (label != null && el.LocalName == "tspan") it.Label = label + " / tspan";
+                it.Original = c.Value;
+                it.Node = c;
+                Items.Add(it);
+            } else if (c.HasChildNodes) {
+                CollectTextNodes(c, label, ref n);
+            }
+        }
+    }
+
+    void LoadTxt(string content) {
+        IsSvg = false;
+        lines = new List<string>(content.Replace("\r\n", "\n").Split('\n'));
+        for (int i = 0; i < lines.Count; i++) {
+            if (Engine.HasRtl(lines[i])) {
+                TextFixItem it = new TextFixItem();
+                it.Label = "Line " + (i + 1).ToString();
+                it.Original = lines[i];
+                it.LineIndex = i;
+                Items.Add(it);
+            }
+        }
+    }
+
+    public void Recompute(FixOptions o) {
+        // never insert line breaks inside file text nodes: SVG <text>
+        // positioning is absolute, a break there corrupts the layout
+        FixOptions of = FixOptions.FromBits(o.ToBits()); // copies all flags, WrapWidth stays 0
+        o = of;
+        foreach (TextFixItem it in Items) {
+            if (Engine.LooksConverted(it.Original)) {
+                it.Fixed = it.Original;
+                it.Changes = 0;
+            } else {
+                FixResult r = Engine.Convert(it.Original, o);
+                // file text stays single-segment: keep \n form, not \r\n
+                it.Fixed = r.Text.Replace("\r\n", "\n");
+                it.Changes = r.Total;
+            }
+        }
+    }
+
+    public int AppliedCount() {
+        int n = 0;
+        foreach (TextFixItem it in Items) if (it.Apply && it.Changes > 0) n++;
+        return n;
+    }
+
+    // write with checked items applied; keeps source untouched unless path == SourcePath
+    public void SaveTo(string path, bool keepBak) {
+        if (keepBak && File.Exists(path)) {
+            string bak = path + ".bak";
+            if (!File.Exists(bak)) File.Copy(path, bak);
+        }
+        if (IsSvg) {
+            foreach (TextFixItem it in Items)
+                it.Node.Value = it.Apply ? it.Fixed : it.Original;
+            XmlTextWriter w = new XmlTextWriter(path, new UTF8Encoding(false));
+            try { xml.Save(w); } finally { w.Close(); }
+            foreach (TextFixItem it in Items) it.Node.Value = it.Original; // keep doc pristine
+            // keep the source's exact XML declaration so files diff clean
+            if (originalDecl != null) {
+                string written = File.ReadAllText(path);
+                int we = written.IndexOf("?>");
+                if (written.StartsWith("<?xml") && we > 0)
+                    File.WriteAllText(path, originalDecl + written.Substring(we + 2), new UTF8Encoding(false));
+            }
+        } else {
+            List<string> outLines = new List<string>(lines);
+            foreach (TextFixItem it in Items)
+                if (it.Apply) outLines[it.LineIndex] = it.Fixed;
+            File.WriteAllText(path, string.Join("\r\n", outLines.ToArray()), new UTF8Encoding(true));
+        }
+    }
+
+    public string BuildReport(FixOptions o) {
+        StringBuilder sb = new StringBuilder();
+        sb.AppendLine("NassakhRTL 2.0.2 - Fix Report");
+        sb.AppendLine("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        sb.AppendLine("File: " + SourcePath);
+        sb.AppendLine("Options: " + o.ToBits());
+        sb.AppendLine("Items found: " + Items.Count.ToString());
+        sb.AppendLine(new string('-', 50));
+        foreach (TextFixItem it in Items) {
+            sb.AppendLine("[" + (it.Apply ? "x" : " ") + "] " + it.Label
+                + "  (" + it.Changes.ToString() + " changes)");
+            sb.AppendLine("    original : " + Short(it.Original));
+            sb.AppendLine("    fixed    : " + Short(it.Fixed));
+        }
+        return sb.ToString();
+    }
+
+    static string Short(string s) {
+        s = s.Replace("\n", " ").Replace("\r", " ");
+        return s.Length > 60 ? s.Substring(0, 60) + "..." : s;
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Folder watcher core - UI-independent so it is testable.
+//  Debounces events, skips its own writes, never double-converts.
+// ------------------------------------------------------------------ //
+public class WatcherCore {
+    FileSystemWatcher fsw = null;
+    Dictionary<string, DateTime> pending = new Dictionary<string, DateTime>();
+    Dictionary<string, DateTime> selfWrites = new Dictionary<string, DateTime>();
+    object gate = new object();
+
+    public Func<FixOptions> GetOptions = null;
+    public bool MakeBak = true;
+    public int DebounceMs = 700;
+    public event Action<string, bool> Log;   // message, isSuccess
+    public bool Running { get { return fsw != null; } }
+    public string Folder = "";
+
+    public void Start(string folder) {
+        Stop();
+        Folder = folder;
+        fsw = new FileSystemWatcher(folder);
+        fsw.IncludeSubdirectories = false;
+        fsw.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName;
+        fsw.Created += OnFsEvent;
+        fsw.Changed += OnFsEvent;
+        fsw.Renamed += delegate(object s, RenamedEventArgs e) { Queue(e.FullPath); };
+        fsw.EnableRaisingEvents = true;
+    }
+
+    public void Stop() {
+        if (fsw != null) {
+            fsw.EnableRaisingEvents = false;
+            fsw.Dispose();
+            fsw = null;
+        }
+        lock (gate) { pending.Clear(); }
+    }
+
+    void OnFsEvent(object s, FileSystemEventArgs e) { Queue(e.FullPath); }
+
+    void Queue(string path) {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext != ".txt" && ext != ".svg") return;
+        lock (gate) {
+            DateTime sw;
+            if (selfWrites.TryGetValue(path, out sw) && (DateTime.Now - sw).TotalSeconds < 3) return;
+            pending[path] = DateTime.Now;
+        }
+    }
+
+    // called by a UI timer (or directly in tests)
+    public void Tick() {
+        List<string> ready = new List<string>();
+        lock (gate) {
+            List<string> remove = new List<string>();
+            foreach (KeyValuePair<string, DateTime> kv in pending) {
+                if ((DateTime.Now - kv.Value).TotalMilliseconds >= DebounceMs) {
+                    ready.Add(kv.Key);
+                    remove.Add(kv.Key);
+                }
+            }
+            foreach (string k in remove) pending.Remove(k);
+        }
+        foreach (string f in ready) ProcessFile(f);
+    }
+
+    public void ProcessFile(string path) {
+        try {
+            if (!File.Exists(path)) return;
+            string content = ReadWithRetry(path);
+            if (content == null) { Emit(Path.GetFileName(path) + ": file locked, skipped", false); return; }
+            if (!Engine.HasRtl(content)) return; // nothing to do, stay silent
+            FixOptions o = GetOptions != null ? GetOptions() : new FixOptions();
+            RtlFile f = RtlFile.FromContent(path, content, o);
+            if (f.Items.Count == 0) return;
+            bool anyChange = false;
+            foreach (TextFixItem it in f.Items) if (it.Changes > 0) anyChange = true;
+            if (!anyChange) { Emit(Path.GetFileName(path) + ": already converted, skipped", true); return; }
+            f.SaveTo(path, MakeBak);
+            lock (gate) { selfWrites[path] = DateTime.Now; }
+            Emit("Fixed " + f.AppliedCount().ToString() + " item(s) in " + Path.GetFileName(path), true);
+        } catch (Exception ex) {
+            Emit(Path.GetFileName(path) + ": " + ex.Message, false);
+        }
+    }
+
+    static string ReadWithRetry(string path) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                using (StreamReader r = new StreamReader(path, Encoding.UTF8, true)) return r.ReadToEnd();
+            } catch (IOException) { Thread.Sleep(250); }
+        }
+        return null;
+    }
+
+    void Emit(string msg, bool ok) { if (Log != null) Log(msg, ok); }
+}
+
+// ------------------------------------------------------------------ //
+//  Main window v2: header + tabs (Quick Fix / Files / Watcher),
+//  tray icon, three global hotkeys.
 // ------------------------------------------------------------------ //
 public class MainForm : Form {
 
-    [DllImport("user32.dll")]
-    static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
-    [DllImport("user32.dll")]
-    static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
+    [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
+
     const int WM_HOTKEY = 0x0312;
-    const int HOTKEY_ID = 0xA17F;
+    const int HK_CLIPBOARD = 0xA17F;
+    const int HK_FIXBOX = 0xA180;
+    const int HK_RESTOREBOX = 0xA181;
+    const int MOD_ALT = 0x0001, MOD_CONTROL = 0x0002;
 
     Theme th;
     bool dark = false;
-    bool hotkeyOk = false;
     bool loadingUi = false;
+    bool reallyExit = false;
+    bool trayTipShown = false;
+    bool hkClip = false, hkFix = false, hkRestore = false;
 
     Panel header;
     PictureBox logo;
+    Button bTheme, bAbout;
+    TabControl tabs;
+    TabPage tabQuick, tabFiles, tabWatch;
+    NotifyIcon tray;
+    ToolStripMenuItem trayWatchItem;
+
+    // quick fix tab
     TextBox input;
     Label lblInput, lblPreview, inspector, status;
     PreviewPanel preview;
     GroupBox optBox;
-    CheckBox cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop;
+    CheckBox cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap;
+    NumericUpDown numWrap;
+    Label lblWrapCap;
     ComboBox cmbPreset, cmbHistory;
-    Button bSavePreset, bDelPreset;
-    Button bConvert, bClip, bRestore, bClear, bImport, bExport, bTheme, bAbout;
+    Button bSavePreset, bDelPreset, bConvert, bClip, bRestore, bClear, bImport, bExport;
     ContextMenuStrip exportMenu;
-    Timer debounce;
-
-    List<string[]> history = new List<string[]>(); // [original, converted, label]
+    System.Windows.Forms.Timer debounce;
+    List<string[]> history = new List<string[]>();
     Dictionary<string, string> presets = new Dictionary<string, string>();
     string lastConverted = "";
+
+    Label lblPresetCap, lblHistCap;
+
+    // files tab
+    Button bOpenFile, bSaveAs, bOverwrite, bReport, bCheckAll, bCheckNone, bCopyText;
+    Label lblFile, lblFileNote, lblOrig, lblFixed, fileStatus;
+    ListView list;
+    TextBox origBox;
+    PreviewPanel fixedPrev;
+    RtlFile curFile = null;
+    bool listGuard = false;
+
+    // watcher tab
+    TextBox watchDir;
+    Button bBrowse, bWatchToggle;
+    CheckBox cBak;
+    Label watchStatus, lblWatchCap, lblLogCap, lblWatchNote;
+    ListBox watchLog;
+    WatcherCore watcher = new WatcherCore();
+    System.Windows.Forms.Timer watchTimer;
 
     string SettingsDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NassakhRTL"); } }
     string SettingsFile { get { return Path.Combine(SettingsDir, "settings.ini"); } }
 
     public MainForm() {
         th = Theme.Light();
-        Text = "NassakhRTL";
+        Text = "NassakhRTL 2.0.2";
         Icon = AssetLoader.AppIcon();
         Font = new Font("Segoe UI", 9F);
-        ClientSize = new Size(580, 720);
-        MinimumSize = new Size(548, 648);
+        ClientSize = new Size(640, 760);
+        MinimumSize = new Size(620, 700);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Font;
         KeyPreview = true;
         AllowDrop = true;
         TopMost = true;
 
-        BuildUi();
+        BuildHeader();
+        BuildTabs();
+        BuildQuickTab();
+        BuildFilesTab();
+        BuildWatchTab();
+        BuildTray();
         LoadSettings();
         ApplyTheme();
         HookEvents();
         loadingUi = false;
     }
 
-    void BuildUi() {
-        loadingUi = true;
-        int W = ClientSize.Width, H = ClientSize.Height;
-
-        // ---- header ----
+    // ---------------- construction ----------------
+    void BuildHeader() {
         header = new Panel();
         header.Dock = DockStyle.Top;
         header.Height = 58;
@@ -1656,164 +2037,354 @@ public class MainForm : Form {
         logo.Size = new Size(233, 36);
         header.Controls.Add(logo);
 
-        bAbout = HeaderBtn("?", W - 46); header.Controls.Add(bAbout);
-        bTheme = HeaderBtn("\u263D", W - 84); header.Controls.Add(bTheme);
-        bExport = HeaderBtn("\uD83D\uDCBE Export", W - 176, 84); header.Controls.Add(bExport);
-        bImport = HeaderBtn("\uD83D\uDCC2 Import", W - 268, 84); header.Controls.Add(bImport);
+        bAbout = HBtn("?", ClientSize.Width - 46, 32);
+        bTheme = HBtn("\u263D", ClientSize.Width - 84, 32);
+        bExport = HBtn("\uD83D\uDCBE Export", ClientSize.Width - 176, 84);
+        bImport = HBtn("\uD83D\uDCC2 Import", ClientSize.Width - 268, 84);
+        header.Controls.Add(bAbout); header.Controls.Add(bTheme);
+        header.Controls.Add(bExport); header.Controls.Add(bImport);
 
         exportMenu = new ContextMenuStrip();
         exportMenu.Items.Add("Copy converted text");
         exportMenu.Items.Add("Save as .txt");
         exportMenu.Items.Add("Save as .json (original + converted)");
-
-        // ---- input ----
-        lblInput = new Label();
-        lblInput.Text = "INPUT \u2014 paste, type, or drop a .txt file";
-        lblInput.Location = new Point(16, 66);
-        lblInput.AutoSize = true;
-        lblInput.Font = new Font("Consolas", 8.5F);
-        lblInput.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-        Controls.Add(lblInput);
-
-        input = new TextBox();
-        input.Multiline = true;
-        input.ScrollBars = ScrollBars.Vertical;
-        input.RightToLeft = RightToLeft.Yes;
-        input.Font = new Font("Arial", 13F);
-        input.Location = new Point(14, 84);
-        input.Size = new Size(W - 28, H - 84 - 380);
-        input.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-        input.BorderStyle = BorderStyle.FixedSingle;
-        input.AllowDrop = true;
-        Controls.Add(input);
-
-        // ---- preview ----
-        lblPreview = new Label();
-        lblPreview.Text = "AFFINITY PREVIEW \u2014 click a letter to inspect it";
-        lblPreview.Location = new Point(16, H - 372);
-        lblPreview.AutoSize = true;
-        lblPreview.Font = new Font("Consolas", 8.5F);
-        lblPreview.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-        Controls.Add(lblPreview);
-
-        preview = new PreviewPanel();
-        preview.Location = new Point(14, H - 352);
-        preview.Size = new Size(W - 28, 96);
-        preview.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        preview.BorderStyle = BorderStyle.FixedSingle;
-        Controls.Add(preview);
-
-        inspector = new Label();
-        inspector.Location = new Point(16, H - 252);
-        inspector.Size = new Size(W - 32, 18);
-        inspector.Font = new Font("Consolas", 8.5F);
-        inspector.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        inspector.Text = "";
-        Controls.Add(inspector);
-
-        // ---- options ----
-        optBox = new GroupBox();
-        optBox.Text = "Options";
-        optBox.Location = new Point(14, H - 230);
-        optBox.Size = new Size(W - 28, 118);
-        optBox.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        Controls.Add(optBox);
-
-        int colA = 12, colB = (W - 28) / 2;
-        cDigits = Opt("Arabic digits \u2192 0-9", colA, 20, true);
-        cHidden = Opt("Remove hidden characters", colA, 42, true);
-        cDia = Opt("Remove diacritics (harakat/niqqud)", colA, 64, false);
-        cTat = Opt("Remove tatweel \u0640", colA, 86, false);
-        cPunct = Opt("\u060C \u061B \u061F \u2192 Latin , ; ?", colB, 20, false);
-        cAlef = Opt("Unify alef \u0623\u0625\u0622 \u2192 \u0627 (changes spelling)", colB, 42, false);
-        cYaTa = Opt("\u0649\u2192\u064A and \u0629\u2192\u0647 (changes spelling)", colB, 64, false);
-        cTop = Opt("Stay on top", colB, 86, true);
-
-        // ---- presets + history row ----
-        Label lp = new Label();
-        lp.Text = "Preset"; lp.AutoSize = true;
-        lp.Location = new Point(16, H - 106 + 4);
-        lp.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-        Controls.Add(lp);
-
-        cmbPreset = new ComboBox();
-        cmbPreset.DropDownStyle = ComboBoxStyle.DropDownList;
-        cmbPreset.Location = new Point(62, H - 106);
-        cmbPreset.Size = new Size(120, 24);
-        cmbPreset.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-        Controls.Add(cmbPreset);
-
-        bSavePreset = SmallBtn("+", 186, H - 106, 26); Controls.Add(bSavePreset);
-        bDelPreset = SmallBtn("\u2212", 214, H - 106, 26); Controls.Add(bDelPreset);
-
-        Label lh = new Label();
-        lh.Text = "History"; lh.AutoSize = true;
-        lh.Location = new Point(252, H - 106 + 4);
-        lh.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-        Controls.Add(lh);
-
-        cmbHistory = new ComboBox();
-        cmbHistory.DropDownStyle = ComboBoxStyle.DropDownList;
-        cmbHistory.Location = new Point(300, H - 106);
-        cmbHistory.Size = new Size(W - 300 - 14, 24);
-        cmbHistory.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        Controls.Add(cmbHistory);
-
-        // ---- main buttons ----
-        bConvert = new Button();
-        bConvert.Text = "\u26A1 Convert + Copy";
-        bConvert.Location = new Point(14, H - 74);
-        bConvert.Size = new Size(150, 32);
-        bConvert.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-        bConvert.FlatStyle = FlatStyle.Flat;
-        bConvert.FlatAppearance.BorderSize = 0;
-        Controls.Add(bConvert);
-
-        bClip = SmallBtn("\uD83D\uDCCB Fix clipboard", 172, H - 74, 124, 32); Controls.Add(bClip);
-        bRestore = SmallBtn("\u21A9 Restore", 304, H - 74, 92, 32); Controls.Add(bRestore);
-        bClear = SmallBtn("\u2715 Clear", 404, H - 74, 80, 32); Controls.Add(bClear);
-
-        status = new Label();
-        status.Location = new Point(16, H - 34);
-        status.Size = new Size(W - 32, 24);
-        status.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        status.Text = "";
-        Controls.Add(status);
-
-        debounce = new Timer();
-        debounce.Interval = 160;
     }
 
-    Button HeaderBtn(string text, int x) { return HeaderBtn(text, x, 32); }
-    Button HeaderBtn(string text, int x, int w) {
+    Button HBtn(string text, int x, int w) {
         Button b = new Button();
-        b.Text = text;
-        b.Location = new Point(x, 14);
-        b.Size = new Size(w, 30);
+        b.Text = text; b.Location = new Point(x, 14); b.Size = new Size(w, 30);
         b.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         b.FlatStyle = FlatStyle.Flat;
         return b;
     }
 
-    Button SmallBtn(string text, int x, int y, int w) { return SmallBtn(text, x, y, w, 24); }
-    Button SmallBtn(string text, int x, int y, int w, int h) {
+    void BuildTabs() {
+        tabs = new TabControl();
+        tabs.Location = new Point(0, 58);
+        tabs.Size = new Size(ClientSize.Width, ClientSize.Height - 58);
+        tabs.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        tabQuick = new TabPage("  Quick Fix  ");
+        tabFiles = new TabPage("  Files (SVG / TXT)  ");
+        tabWatch = new TabPage("  Folder Watcher  ");
+        tabs.TabPages.Add(tabQuick);
+        tabs.TabPages.Add(tabFiles);
+        tabs.TabPages.Add(tabWatch);
+        Controls.Add(tabs);
+        // explicit layout, recomputed from real page size on every resize:
+        // anchors against estimated sizes broke on Windows (pages start tiny)
+        tabQuick.Resize += delegate(object s2, EventArgs e2) { LayoutQuick(); };
+        tabFiles.Resize += delegate(object s2, EventArgs e2) { LayoutFiles(); };
+        tabWatch.Resize += delegate(object s2, EventArgs e2) { LayoutWatch(); };
+    }
+
+    protected override void OnShown(EventArgs e) {
+        base.OnShown(e);
+        LayoutQuick(); LayoutFiles(); LayoutWatch();
+    }
+
+    // ---------------- Quick Fix tab (v1 controls, manual layout) ----------------
+    void BuildQuickTab() {
+        lblInput = QLabel("INPUT \u2014 paste, type, or drop a .txt file", new Font("Consolas", 8.5F));
+        input = new TextBox();
+        input.Multiline = true;
+        input.ScrollBars = ScrollBars.Vertical;
+        input.RightToLeft = RightToLeft.Yes;
+        input.Font = new Font("Arial", 13F);
+        input.BorderStyle = BorderStyle.FixedSingle;
+        input.AllowDrop = true;
+        tabQuick.Controls.Add(input);
+
+        lblPreview = QLabel("AFFINITY PREVIEW \u2014 click a letter to inspect it", new Font("Consolas", 8.5F));
+        preview = new PreviewPanel();
+        preview.BorderStyle = BorderStyle.FixedSingle;
+        tabQuick.Controls.Add(preview);
+
+        inspector = QLabel("", new Font("Consolas", 8.5F));
+        inspector.AutoSize = false;
+
+        optBox = new GroupBox();
+        optBox.Text = "Options";
+        tabQuick.Controls.Add(optBox);
+
+        cDigits = Opt("Arabic digits \u2192 0-9", true);
+        cHidden = Opt("Remove hidden characters", true);
+        cDia = Opt("Remove diacritics (harakat/niqqud)", false);
+        cTat = Opt("Remove tatweel \u0640", false);
+        cPunct = Opt("\u060C \u061B \u061F \u2192 Latin , ; ?", false);
+        cAlef = Opt("Unify alef \u0623\u0625\u0622 \u2192 \u0627 (changes spelling)", false);
+        cYaTa = Opt("\u0649\u2192\u064A and \u0629\u2192\u0647 (changes spelling)", false);
+        cTop = Opt("Stay on top", true);
+        cWrap = Opt("Break long paragraphs into lines of", true);
+        numWrap = new NumericUpDown();
+        numWrap.Minimum = 20; numWrap.Maximum = 200; numWrap.Value = 70;
+        numWrap.Width = 52;
+        optBox.Controls.Add(numWrap);
+        lblWrapCap = new Label();
+        lblWrapCap.Text = "chars \u2014 required for wrapping text frames";
+        lblWrapCap.AutoSize = true;
+        optBox.Controls.Add(lblWrapCap);
+
+        lblPresetCap = QLabel("Preset", null);
+        cmbPreset = new ComboBox();
+        cmbPreset.DropDownStyle = ComboBoxStyle.DropDownList;
+        tabQuick.Controls.Add(cmbPreset);
+        bSavePreset = QBtn("+");
+        bDelPreset = QBtn("\u2212");
+
+        lblHistCap = QLabel("History", null);
+        cmbHistory = new ComboBox();
+        cmbHistory.DropDownStyle = ComboBoxStyle.DropDownList;
+        tabQuick.Controls.Add(cmbHistory);
+
+        bConvert = QBtn("\u26A1 Convert + Copy");
+        bConvert.FlatAppearance.BorderSize = 0;
+        bClip = QBtn("\uD83D\uDCCB Fix clipboard");
+        bRestore = QBtn("\u21A9 Restore");
+        bClear = QBtn("\u2715 Clear");
+
+        status = QLabel("", null);
+        status.AutoSize = false;
+
+        debounce = new System.Windows.Forms.Timer();
+        debounce.Interval = 160;
+    }
+
+    // single source of truth for Quick Fix geometry; runs on every resize
+    void LayoutQuick() {
+        int W = tabQuick.ClientSize.Width, H = tabQuick.ClientSize.Height;
+        if (W < 100 || H < 100) return;
+        lblInput.Location = new Point(16, 8);
+        input.Location = new Point(14, 26);
+        input.Size = new Size(W - 28, Math.Max(80, H - 26 - 404));
+        lblPreview.Location = new Point(16, H - 396);
+        preview.Location = new Point(14, H - 376);
+        preview.Size = new Size(W - 28, 96);
+        inspector.Location = new Point(16, H - 276);
+        inspector.Size = new Size(W - 32, 18);
+        optBox.Location = new Point(14, H - 254);
+        optBox.Size = new Size(W - 28, 142);
+        int colB = (W - 28) / 2;
+        cDigits.Location = new Point(12, 20);
+        cHidden.Location = new Point(12, 42);
+        cDia.Location = new Point(12, 64);
+        cTat.Location = new Point(12, 86);
+        cPunct.Location = new Point(colB, 20);
+        cAlef.Location = new Point(colB, 42);
+        cYaTa.Location = new Point(colB, 64);
+        cTop.Location = new Point(colB, 86);
+        cWrap.Location = new Point(12, 110);
+        numWrap.Location = new Point(cWrap.Right + 2, 108);
+        lblWrapCap.Location = new Point(numWrap.Right + 6, 111);
+        lblPresetCap.Location = new Point(16, H - 102);
+        cmbPreset.Location = new Point(62, H - 106);
+        cmbPreset.Size = new Size(120, 24);
+        bSavePreset.SetBounds(186, H - 106, 26, 24);
+        bDelPreset.SetBounds(214, H - 106, 26, 24);
+        lblHistCap.Location = new Point(252, H - 102);
+        cmbHistory.Location = new Point(300, H - 106);
+        cmbHistory.Size = new Size(Math.Max(60, W - 300 - 14), 24);
+        bConvert.SetBounds(14, H - 74, 150, 32);
+        bClip.SetBounds(172, H - 74, 124, 32);
+        bRestore.SetBounds(304, H - 74, 92, 32);
+        bClear.SetBounds(404, H - 74, 80, 32);
+        status.Location = new Point(16, H - 34);
+        status.Size = new Size(W - 32, 24);
+    }
+
+    Label QLabel(string text, Font f) {
+        Label l = new Label();
+        l.Text = text; l.AutoSize = true;
+        if (f != null) l.Font = f;
+        tabQuick.Controls.Add(l);
+        return l;
+    }
+
+    Button QBtn(string text) {
         Button b = new Button();
         b.Text = text;
-        b.Location = new Point(x, y);
-        b.Size = new Size(w, h);
-        b.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
         b.FlatStyle = FlatStyle.Flat;
+        tabQuick.Controls.Add(b);
         return b;
     }
 
-    CheckBox Opt(string text, int x, int y, bool isChecked) {
+    CheckBox Opt(string text, bool isChecked) {
         CheckBox c = new CheckBox();
-        c.Text = text;
-        c.Checked = isChecked;
-        c.AutoSize = true;
-        c.Location = new Point(x, y);
+        c.Text = text; c.Checked = isChecked; c.AutoSize = true;
         optBox.Controls.Add(c);
         return c;
+    }
+
+    // ---------------- Files tab ----------------
+    void BuildFilesTab() {
+        bOpenFile = FBtn("\uD83D\uDCC2 Open SVG / TXT\u2026");
+        lblFile = FLabel("No file open. You can also drop a file here.");
+
+        list = new ListView();
+        list.View = View.Details;
+        list.FullRowSelect = true;
+        list.CheckBoxes = true;
+        list.HideSelection = false;
+        list.Columns.Add("Item", 140);
+        list.Columns.Add("Changes", 70);
+        list.Columns.Add("Original (preview)", 320);
+        tabFiles.Controls.Add(list);
+
+        bCheckAll = FBtn("Check all");
+        bCheckNone = FBtn("Uncheck all");
+        bCopyText = FBtn("\uD83D\uDCCB Copy fixed text");
+        fileStatus = FLabel("");
+
+        lblOrig = FLabel("ORIGINAL (editable Windows rendering)");
+        lblOrig.Font = new Font("Consolas", 8.5F);
+        origBox = new TextBox();
+        origBox.Multiline = true; origBox.ReadOnly = true;
+        origBox.RightToLeft = RightToLeft.Yes;
+        origBox.Font = new Font("Arial", 12F);
+        origBox.BorderStyle = BorderStyle.FixedSingle;
+        tabFiles.Controls.Add(origBox);
+
+        lblFixed = FLabel("FIXED \u2014 Affinity preview");
+        lblFixed.Font = new Font("Consolas", 8.5F);
+        fixedPrev = new PreviewPanel();
+        fixedPrev.BorderStyle = BorderStyle.FixedSingle;
+        tabFiles.Controls.Add(fixedPrev);
+
+        bSaveAs = FBtn("\uD83D\uDCBE Apply \u2192 Save As\u2026");
+        bSaveAs.FlatAppearance.BorderSize = 0;
+        bOverwrite = FBtn("Apply \u2192 Overwrite (.bak kept)");
+        bReport = FBtn("Export fix report\u2026");
+
+        lblFileNote = FLabel("Save As = new file, source untouched. Overwrite = keeps .bak. " +
+            "Copy fixed text = selected item's text only, never markup. Export SVG from Affinity with \"Text as text\".");
+        lblFileNote.AutoSize = false;
+    }
+
+    void LayoutFiles() {
+        int W = tabFiles.ClientSize.Width, H = tabFiles.ClientSize.Height;
+        if (W < 100 || H < 100) return;
+        bOpenFile.SetBounds(14, 10, 150, 30);
+        lblFile.Location = new Point(176, 17);
+        list.Location = new Point(14, 48);
+        list.Size = new Size(W - 28, Math.Max(60, H - 48 - 286));
+        if (list.Columns.Count == 3) list.Columns[2].Width = Math.Max(120, W - 28 - 230);
+        bCheckAll.SetBounds(14, H - 276, 80, 24);
+        bCheckNone.SetBounds(100, H - 276, 90, 24);
+        bCopyText.SetBounds(196, H - 276, 140, 24);
+        fileStatus.Location = new Point(344, H - 272);
+        lblOrig.Location = new Point(16, H - 246);
+        origBox.SetBounds(14, H - 228, W - 28, 62);
+        lblFixed.Location = new Point(16, H - 160);
+        fixedPrev.SetBounds(14, H - 142, W - 28, 62);
+        bSaveAs.SetBounds(14, H - 70, 160, 32);
+        bOverwrite.SetBounds(182, H - 70, 190, 32);
+        bReport.SetBounds(380, H - 70, 140, 32);
+        lblFileNote.Location = new Point(16, H - 32);
+        lblFileNote.Size = new Size(W - 32, 28);
+    }
+
+    Label FLabel(string text) {
+        Label l = new Label();
+        l.Text = text; l.AutoSize = true;
+        tabFiles.Controls.Add(l);
+        return l;
+    }
+
+    Button FBtn(string text) {
+        Button b = new Button();
+        b.Text = text;
+        b.FlatStyle = FlatStyle.Flat;
+        tabFiles.Controls.Add(b);
+        return b;
+    }
+
+    // ---------------- Watcher tab ----------------
+    void BuildWatchTab() {
+        lblWatchCap = WLabel("Watch this folder for exported .txt and .svg files:");
+        watchDir = new TextBox();
+        tabWatch.Controls.Add(watchDir);
+        bBrowse = WBtn("Browse\u2026");
+        cBak = new CheckBox();
+        cBak.Text = "Keep a .bak copy of the original before fixing (recommended)";
+        cBak.Checked = true; cBak.AutoSize = true;
+        tabWatch.Controls.Add(cBak);
+        bWatchToggle = WBtn("\u25B6 Start watching");
+        bWatchToggle.FlatAppearance.BorderSize = 0;
+        watchStatus = WLabel("Watcher is off.");
+        lblLogCap = WLabel("ACTIVITY LOG");
+        lblLogCap.Font = new Font("Consolas", 8.5F);
+        watchLog = new ListBox();
+        watchLog.BorderStyle = BorderStyle.FixedSingle;
+        tabWatch.Controls.Add(watchLog);
+        lblWatchNote = WLabel("Watcher skips files with no RTL text and files that are already converted. " +
+            "Uses the Options from the Quick Fix tab.");
+        lblWatchNote.AutoSize = false;
+        watchTimer = new System.Windows.Forms.Timer();
+        watchTimer.Interval = 400;
+    }
+
+    void LayoutWatch() {
+        int W = tabWatch.ClientSize.Width, H = tabWatch.ClientSize.Height;
+        if (W < 100 || H < 100) return;
+        lblWatchCap.Location = new Point(16, 14);
+        watchDir.SetBounds(14, 36, W - 28 - 92, 24);
+        bBrowse.SetBounds(W - 98, 35, 84, 26);
+        cBak.Location = new Point(16, 70);
+        bWatchToggle.SetBounds(14, 96, 150, 32);
+        watchStatus.Location = new Point(176, 104);
+        lblLogCap.Location = new Point(16, 142);
+        watchLog.SetBounds(14, 160, W - 28, Math.Max(60, H - 160 - 48));
+        lblWatchNote.Location = new Point(16, H - 36);
+        lblWatchNote.Size = new Size(W - 32, 28);
+    }
+
+    Label WLabel(string text) {
+        Label l = new Label();
+        l.Text = text; l.AutoSize = true;
+        tabWatch.Controls.Add(l);
+        return l;
+    }
+
+    Button WBtn(string text) {
+        Button b = new Button();
+        b.Text = text;
+        b.FlatStyle = FlatStyle.Flat;
+        tabWatch.Controls.Add(b);
+        return b;
+    }
+
+    // ---------------- tray ----------------
+    void BuildTray() {
+        tray = new NotifyIcon();
+        tray.Icon = AssetLoader.AppIcon();
+        tray.Text = "NassakhRTL 2.0.2";
+        tray.Visible = true;
+        ContextMenuStrip m = new ContextMenuStrip();
+        m.Items.Add("Open NassakhRTL", null, delegate(object s, EventArgs e) { RestoreFromTray(); });
+        m.Items.Add("Fix clipboard now  (Ctrl+Alt+R)", null, delegate(object s, EventArgs e) { FixClipboard(); });
+        m.Items.Add(new ToolStripSeparator());
+        trayWatchItem = new ToolStripMenuItem("Folder watcher");
+        trayWatchItem.CheckOnClick = true;
+        trayWatchItem.Click += delegate(object s, EventArgs e) { ToggleWatcher(trayWatchItem.Checked); };
+        m.Items.Add(trayWatchItem);
+        m.Items.Add(new ToolStripSeparator());
+        m.Items.Add("Exit", null, delegate(object s, EventArgs e) { reallyExit = true; Close(); });
+        tray.ContextMenuStrip = m;
+        tray.DoubleClick += delegate(object s, EventArgs e) { RestoreFromTray(); };
+    }
+
+    void RestoreFromTray() {
+        Show();
+        WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    void TrayTip(string title, string msg, bool ok) {
+        try {
+            tray.BalloonTipTitle = title;
+            tray.BalloonTipText = msg;
+            tray.BalloonTipIcon = ok ? ToolTipIcon.Info : ToolTipIcon.Warning;
+            tray.ShowBalloonTip(2500);
+        } catch (Exception) { }
     }
 
     // ---------------- events ----------------
@@ -1821,11 +2392,17 @@ public class MainForm : Form {
         input.TextChanged += delegate(object s, EventArgs e) { debounce.Stop(); debounce.Start(); };
         debounce.Tick += delegate(object s, EventArgs e) { debounce.Stop(); UpdatePreview(); };
 
-        EventHandler optChanged = delegate(object s, EventArgs e) { if (!loadingUi) UpdatePreview(); };
+        EventHandler optChanged = delegate(object s, EventArgs e) {
+            if (loadingUi) return;
+            UpdatePreview();
+            if (curFile != null) { curFile.Recompute(CurrentOptions()); RefreshFileList(); }
+        };
         cDigits.CheckedChanged += optChanged; cHidden.CheckedChanged += optChanged;
         cDia.CheckedChanged += optChanged; cTat.CheckedChanged += optChanged;
         cPunct.CheckedChanged += optChanged; cAlef.CheckedChanged += optChanged;
         cYaTa.CheckedChanged += optChanged;
+        cWrap.CheckedChanged += optChanged;
+        numWrap.ValueChanged += optChanged;
         cTop.CheckedChanged += delegate(object s, EventArgs e) { TopMost = cTop.Checked; };
 
         bConvert.Click += delegate(object s, EventArgs e) { ConvertCopy(); };
@@ -1834,7 +2411,7 @@ public class MainForm : Form {
         bClear.Click += delegate(object s, EventArgs e) { input.Text = ""; UpdatePreview(); };
         bTheme.Click += delegate(object s, EventArgs e) { dark = !dark; ApplyTheme(); };
         bAbout.Click += delegate(object s, EventArgs e) { using (AboutDialog d = new AboutDialog(th)) d.ShowDialog(this); };
-        bImport.Click += delegate(object s, EventArgs e) { ImportFile(); };
+        bImport.Click += delegate(object s, EventArgs e) { ImportToQuick(); };
         bExport.Click += delegate(object s, EventArgs e) { exportMenu.Show(bExport, new Point(0, bExport.Height)); };
         exportMenu.ItemClicked += delegate(object s, ToolStripItemClickedEventArgs e) {
             int idx = exportMenu.Items.IndexOf(e.ClickedItem);
@@ -1845,6 +2422,7 @@ public class MainForm : Form {
         };
 
         preview.GlyphPicked += delegate(string g) { inspector.Text = Engine.Inspect(g); };
+        fixedPrev.GlyphPicked += delegate(string g) { fileStatus.Text = Engine.Inspect(g); };
 
         bSavePreset.Click += delegate(object s, EventArgs e) { SavePreset(); };
         bDelPreset.Click += delegate(object s, EventArgs e) { DeletePreset(); };
@@ -1859,7 +2437,6 @@ public class MainForm : Form {
             UpdatePreview();
         };
 
-        // keyboard
         KeyDown += delegate(object s, KeyEventArgs e) {
             if (e.Control && e.KeyCode == Keys.Enter) { ConvertCopy(); e.SuppressKeyPress = true; }
             else if (e.Control && e.Shift && e.KeyCode == Keys.V) {
@@ -1868,7 +2445,6 @@ public class MainForm : Form {
             }
         };
 
-        // drag & drop (form + input)
         DragEventHandler enter = delegate(object s, DragEventArgs e) {
             if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.UnicodeText))
                 e.Effect = DragDropEffects.Copy;
@@ -1876,25 +2452,111 @@ public class MainForm : Form {
         DragEventHandler drop = delegate(object s, DragEventArgs e) { HandleDrop(e); };
         DragEnter += enter; DragDrop += drop;
         input.DragEnter += enter; input.DragDrop += drop;
+
+        // files tab
+        bOpenFile.Click += delegate(object s, EventArgs e) { OpenFileDialogFlow(); };
+        list.SelectedIndexChanged += delegate(object s, EventArgs e) { ShowSelectedItem(); };
+        list.ItemChecked += delegate(object s, ItemCheckedEventArgs e) {
+            if (listGuard || curFile == null) return;
+            int i = e.Item.Index;
+            if (i >= 0 && i < curFile.Items.Count) curFile.Items[i].Apply = e.Item.Checked;
+        };
+        bCheckAll.Click += delegate(object s, EventArgs e) { SetAllChecks(true); };
+        bCheckNone.Click += delegate(object s, EventArgs e) { SetAllChecks(false); };
+        bCopyText.Click += delegate(object s, EventArgs e) { CopySelectedFixedText(); };
+        bSaveAs.Click += delegate(object s, EventArgs e) { FileSaveAs(); };
+        bOverwrite.Click += delegate(object s, EventArgs e) { FileOverwrite(); };
+        bReport.Click += delegate(object s, EventArgs e) { FileReport(); };
+
+        // watcher tab
+        bBrowse.Click += delegate(object s, EventArgs e) {
+            using (FolderBrowserDialog d = new FolderBrowserDialog()) {
+                if (d.ShowDialog(this) == DialogResult.OK) watchDir.Text = d.SelectedPath;
+            }
+        };
+        bWatchToggle.Click += delegate(object s, EventArgs e) { ToggleWatcher(!watcher.Running); };
+        watcher.GetOptions = CurrentOptions;
+        watcher.Log += OnWatcherLog;
+        watchTimer.Tick += delegate(object s, EventArgs e) { watcher.Tick(); };
+        watchTimer.Start();
+
+        // minimize to tray
+        Resize += delegate(object s, EventArgs e) {
+            if (WindowState == FormWindowState.Minimized) {
+                Hide();
+                if (!trayTipShown) {
+                    trayTipShown = true;
+                    TrayTip("NassakhRTL is still running",
+                        "Ctrl+Alt+R fixes the clipboard. Ctrl+Alt+F fixes the Affinity text box you are in.", true);
+                }
+            }
+        };
+        FormClosing += delegate(object s, FormClosingEventArgs e) {
+            if (!reallyExit && e.CloseReason == CloseReason.UserClosing) {
+                // X closes for real; tray Exit also closes; nothing intercepted
+            }
+        };
+    }
+
+    void OnWatcherLog(string msg, bool ok) {
+        if (InvokeRequired) { BeginInvoke(new Action<string, bool>(OnWatcherLog), msg, ok); return; }
+        watchLog.Items.Insert(0, DateTime.Now.ToString("HH:mm:ss") + "  " + msg);
+        if (watchLog.Items.Count > 200) watchLog.Items.RemoveAt(watchLog.Items.Count - 1);
+        if (ok && msg.StartsWith("Fixed")) TrayTip("NassakhRTL watcher", msg, true);
+    }
+
+    void ToggleWatcher(bool on) {
+        if (on) {
+            string dir = watchDir.Text.Trim();
+            if (dir.Length == 0 || !Directory.Exists(dir)) {
+                watchStatus.Text = "Pick a valid folder first.";
+                tabs.SelectedTab = tabWatch;
+                trayWatchItem.Checked = false;
+                return;
+            }
+            watcher.MakeBak = cBak.Checked;
+            watcher.Start(dir);
+            bWatchToggle.Text = "\u25A0 Stop watching";
+            watchStatus.Text = "Watching " + dir;
+            trayWatchItem.Checked = true;
+            OnWatcherLog("Watcher started on " + dir, true);
+        } else {
+            watcher.Stop();
+            bWatchToggle.Text = "\u25B6 Start watching";
+            watchStatus.Text = "Watcher is off.";
+            trayWatchItem.Checked = false;
+            OnWatcherLog("Watcher stopped", true);
+        }
     }
 
     void HandleDrop(DragEventArgs e) {
         try {
             if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                StringBuilder sb = new StringBuilder();
-                foreach (string f in files) {
-                    using (StreamReader r = new StreamReader(f, Encoding.UTF8, true)) sb.AppendLine(r.ReadToEnd());
+                string ext = Path.GetExtension(files[0]).ToLowerInvariant();
+                string probe = "";
+                try { using (StreamReader pr = new StreamReader(files[0], Encoding.UTF8, true)) {
+                    char[] buf = new char[300]; int n = pr.Read(buf, 0, 300); probe = new string(buf, 0, n); } }
+                catch (Exception) { }
+                if (ext == ".svg" || Engine.LooksLikeMarkup(probe) || tabs.SelectedTab == tabFiles) {
+                    OpenFileIntoEditor(files[0]);
+                    tabs.SelectedTab = tabFiles;
+                } else {
+                    StringBuilder sb = new StringBuilder();
+                    foreach (string f in files) {
+                        using (StreamReader r = new StreamReader(f, Encoding.UTF8, true)) sb.AppendLine(r.ReadToEnd());
+                    }
+                    input.Text = sb.ToString().TrimEnd();
+                    UpdatePreview();
                 }
-                input.Text = sb.ToString().TrimEnd();
             } else if (e.Data.GetDataPresent(DataFormats.UnicodeText)) {
                 input.Text = (string)e.Data.GetData(DataFormats.UnicodeText);
+                UpdatePreview();
             }
-            UpdatePreview();
         } catch (Exception ex) { Say("Could not read the dropped file: " + ex.Message, false); }
     }
 
-    // ---------------- core actions ----------------
+    // ---------------- quick fix actions (v1 behavior) ----------------
     FixOptions CurrentOptions() {
         FixOptions o = new FixOptions();
         o.WesternDigits = cDigits.Checked;
@@ -1904,6 +2566,7 @@ public class MainForm : Form {
         o.PunctToLatin = cPunct.Checked;
         o.NormalizeAlef = cAlef.Checked;
         o.NormalizeYaTa = cYaTa.Checked;
+        o.WrapWidth = cWrap.Checked ? (int)numWrap.Value : 0;
         return o;
     }
 
@@ -1921,10 +2584,10 @@ public class MainForm : Form {
     }
 
     void UpdatePreview() {
-        if (input.Text.Length == 0) {
-            preview.SetText("");
-            lastConverted = "";
-            Say("", true);
+        if (input.Text.Length == 0) { preview.SetText(""); lastConverted = ""; Say("", true); return; }
+        if (Engine.LooksLikeMarkup(input.Text)) {
+            preview.SetText(""); lastConverted = "";
+            Say("This looks like SVG/XML markup. Use the Files tab so only the text content is fixed.", false);
             return;
         }
         FixResult r = Engine.Convert(input.Text, CurrentOptions());
@@ -1935,6 +2598,10 @@ public class MainForm : Form {
 
     void ConvertCopy() {
         if (input.Text.Trim().Length == 0) { Say("The input box is empty.", false); return; }
+        if (Engine.LooksLikeMarkup(input.Text)) {
+            OpenMarkupFromQuick(input.Text);
+            return;
+        }
         try {
             FixResult r = Engine.Convert(input.Text, CurrentOptions());
             lastConverted = r.Text;
@@ -1949,6 +2616,11 @@ public class MainForm : Form {
         try {
             if (!Clipboard.ContainsText()) { Say("Clipboard has no text.", false); return; }
             string t = Clipboard.GetText();
+            if (Engine.LooksLikeMarkup(t)) {
+                Say("Clipboard holds SVG/XML markup, not plain text. Use the Files tab so only the text content is fixed.", false);
+                TrayTip("NassakhRTL", "Clipboard holds file markup. Nothing was converted. Use the Files tab.", false);
+                return;
+            }
             if (Engine.LooksConverted(t)) { Say("Clipboard is already in Affinity format.", false); return; }
             FixResult r = Engine.Convert(t, CurrentOptions());
             Clipboard.SetText(r.Text);
@@ -1982,17 +2654,40 @@ public class MainForm : Form {
         loadingUi = false;
     }
 
-    // ---------------- import / export ----------------
-    void ImportFile() {
+    void ImportToQuick() {
         using (OpenFileDialog d = new OpenFileDialog()) {
-            d.Filter = "Text files (*.txt;*.csv;*.json)|*.txt;*.csv;*.json|All files (*.*)|*.*";
+            d.Filter = "Text and SVG (*.txt;*.svg;*.csv;*.json)|*.txt;*.svg;*.csv;*.json|All files (*.*)|*.*";
             if (d.ShowDialog(this) == DialogResult.OK) {
                 try {
-                    using (StreamReader r = new StreamReader(d.FileName, Encoding.UTF8, true)) input.Text = r.ReadToEnd();
+                    string ext = Path.GetExtension(d.FileName).ToLowerInvariant();
+                    string content;
+                    using (StreamReader r = new StreamReader(d.FileName, Encoding.UTF8, true)) content = r.ReadToEnd();
+                    if (ext == ".svg" || Engine.LooksLikeMarkup(content)) {
+                        OpenFileIntoEditor(d.FileName);
+                        tabs.SelectedTab = tabFiles;
+                        Say("\u2713 SVG/markup opened in the Files tab \u2014 only its text content will be fixed.", true);
+                        return;
+                    }
+                    input.Text = content;
                     UpdatePreview();
                     Say("\u2713 Imported " + Path.GetFileName(d.FileName), true);
                 } catch (Exception ex) { Say("Could not read file: " + ex.Message, false); }
             }
+        }
+    }
+
+    // user pasted whole-file markup into the Quick Fix box: save it to a temp
+    // file and hand it to the Files editor instead of mangling it as text
+    void OpenMarkupFromQuick(string content) {
+        try {
+            string tmp = Path.Combine(Path.GetTempPath(),
+                "nassakh-pasted-" + DateTime.Now.ToString("HHmmss") + ".svg");
+            File.WriteAllText(tmp, content, new UTF8Encoding(false));
+            OpenFileIntoEditor(tmp);
+            tabs.SelectedTab = tabFiles;
+            Say("Markup detected \u2014 opened in the Files tab. Only the text content will be fixed.", true);
+        } catch (Exception ex) {
+            Say("This looks like SVG/XML markup. Use the Files tab (Open SVG / TXT). " + ex.Message, false);
         }
     }
 
@@ -2031,13 +2726,126 @@ public class MainForm : Form {
             d.FileName = "nassakh-record.json";
             if (d.ShowDialog(this) == DialogResult.OK) {
                 try {
-                    string json = "{\n  \"app\": \"NassakhRTL 1.0\",\n  \"timestamp\": \""
+                    string json = "{\n  \"app\": \"NassakhRTL 2.0.2\",\n  \"timestamp\": \""
                         + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\",\n  \"options\": \""
                         + CurrentOptions().ToBits() + "\",\n  \"original\": \"" + JsonEsc(input.Text)
                         + "\",\n  \"converted\": \"" + JsonEsc(lastConverted) + "\"\n}\n";
                     File.WriteAllText(d.FileName, json, new UTF8Encoding(false));
                     Say("\u2713 Saved " + Path.GetFileName(d.FileName), true);
                 } catch (Exception ex) { Say("Could not save: " + ex.Message, false); }
+            }
+        }
+    }
+
+    // ---------------- files tab actions ----------------
+    void OpenFileDialogFlow() {
+        using (OpenFileDialog d = new OpenFileDialog()) {
+            d.Filter = "SVG and text (*.svg;*.txt)|*.svg;*.txt|All files (*.*)|*.*";
+            if (d.ShowDialog(this) == DialogResult.OK) OpenFileIntoEditor(d.FileName);
+        }
+    }
+
+    void OpenFileIntoEditor(string path) {
+        try {
+            curFile = RtlFile.Load(path, CurrentOptions());
+            lblFile.Text = Path.GetFileName(path) + "  \u2014  " + curFile.Items.Count.ToString() + " RTL text item(s) found";
+            RefreshFileList();
+            if (curFile.Items.Count == 0)
+                fileStatus.Text = curFile.IsSvg
+                    ? "No RTL text found. If text was exported as curves, re-export with \"Text as text\"."
+                    : "No RTL text found in this file.";
+            else fileStatus.Text = "";
+        } catch (Exception ex) {
+            curFile = null;
+            lblFile.Text = "Could not open file: " + ex.Message;
+            list.Items.Clear();
+        }
+    }
+
+    void RefreshFileList() {
+        listGuard = true;
+        int sel = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : -1;
+        list.Items.Clear();
+        if (curFile != null) {
+            foreach (TextFixItem it in curFile.Items) {
+                ListViewItem li = new ListViewItem(it.Label);
+                li.SubItems.Add(it.Changes.ToString());
+                string prev = it.Original.Replace("\n", " ");
+                li.SubItems.Add(prev.Length > 50 ? prev.Substring(0, 50) + "\u2026" : prev);
+                li.Checked = it.Apply;
+                list.Items.Add(li);
+            }
+            if (sel >= 0 && sel < list.Items.Count) list.Items[sel].Selected = true;
+        }
+        listGuard = false;
+        ShowSelectedItem();
+    }
+
+    void ShowSelectedItem() {
+        if (curFile == null || list.SelectedIndices.Count == 0) {
+            origBox.Text = ""; fixedPrev.SetText("");
+            return;
+        }
+        TextFixItem it = curFile.Items[list.SelectedIndices[0]];
+        origBox.Text = it.Original;
+        fixedPrev.SetText(it.Fixed);
+    }
+
+    // copies ONLY the corrected plain text of the selected item - never markup
+    void CopySelectedFixedText() {
+        if (curFile == null || curFile.Items.Count == 0) { fileStatus.Text = "Open a file first."; return; }
+        int idx = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : (curFile.Items.Count == 1 ? 0 : -1);
+        if (idx < 0) { fileStatus.Text = "Select an item in the list first."; return; }
+        try {
+            Clipboard.SetText(curFile.Items[idx].Fixed);
+            fileStatus.Text = "\u2713 Fixed text of \"" + curFile.Items[idx].Label + "\" copied \u2014 paste into an Affinity text box.";
+        } catch (Exception ex) { fileStatus.Text = "Copy failed: " + ex.Message; }
+    }
+
+    void SetAllChecks(bool val) {
+        if (curFile == null) return;
+        listGuard = true;
+        foreach (TextFixItem it in curFile.Items) it.Apply = val;
+        foreach (ListViewItem li in list.Items) li.Checked = val;
+        listGuard = false;
+    }
+
+    void FileSaveAs() {
+        if (curFile == null) { fileStatus.Text = "Open a file first."; return; }
+        using (SaveFileDialog d = new SaveFileDialog()) {
+            d.Filter = curFile.IsSvg ? "SVG (*.svg)|*.svg" : "Text (*.txt)|*.txt";
+            d.FileName = Path.GetFileNameWithoutExtension(curFile.SourcePath) + "-fixed" + Path.GetExtension(curFile.SourcePath);
+            if (d.ShowDialog(this) == DialogResult.OK) {
+                try {
+                    curFile.SaveTo(d.FileName, false);
+                    fileStatus.Text = "\u2713 Saved " + Path.GetFileName(d.FileName) + " (" + curFile.AppliedCount().ToString() + " items applied)";
+                } catch (Exception ex) { fileStatus.Text = "Save failed: " + ex.Message; }
+            }
+        }
+    }
+
+    void FileOverwrite() {
+        if (curFile == null) { fileStatus.Text = "Open a file first."; return; }
+        DialogResult ok = MessageBox.Show(this,
+            "Overwrite " + Path.GetFileName(curFile.SourcePath) + "?\nA .bak copy of the original will be kept next to it.",
+            "NassakhRTL", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+        if (ok != DialogResult.OK) return;
+        try {
+            curFile.SaveTo(curFile.SourcePath, true);
+            fileStatus.Text = "\u2713 Overwritten with .bak kept (" + curFile.AppliedCount().ToString() + " items applied)";
+        } catch (Exception ex) { fileStatus.Text = "Save failed: " + ex.Message; }
+    }
+
+    void FileReport() {
+        if (curFile == null) { fileStatus.Text = "Open a file first."; return; }
+        using (SaveFileDialog d = new SaveFileDialog()) {
+            d.Filter = "Text report (*.txt)|*.txt";
+            d.FileName = Path.GetFileNameWithoutExtension(curFile.SourcePath) + "-fix-report.txt";
+            if (d.ShowDialog(this) == DialogResult.OK) {
+                try {
+                    File.WriteAllText(d.FileName, curFile.BuildReport(CurrentOptions()), new UTF8Encoding(true));
+                    fileStatus.Text = "\u2713 Report saved";
+                } catch (Exception ex) { fileStatus.Text = "Report failed: " + ex.Message; }
             }
         }
     }
@@ -2076,6 +2884,7 @@ public class MainForm : Form {
     void LoadSettings() {
         try {
             if (!File.Exists(SettingsFile)) return;
+            bool watchOn = false;
             foreach (string raw in File.ReadAllLines(SettingsFile)) {
                 int eq = raw.IndexOf('=');
                 if (eq < 1) continue;
@@ -2083,6 +2892,11 @@ public class MainForm : Form {
                 if (key == "theme") dark = val == "dark";
                 else if (key == "opts") SetOptions(FixOptions.FromBits(val));
                 else if (key == "top") cTop.Checked = val == "1";
+                else if (key == "watchdir") watchDir.Text = val;
+                else if (key == "watchon") watchOn = val == "1";
+                else if (key == "bak") cBak.Checked = val == "1";
+                else if (key == "wrapon") cWrap.Checked = val == "1";
+                else if (key == "wrapw") { try { numWrap.Value = Math.Max(20, Math.Min(200, int.Parse(val))); } catch (Exception) { } }
                 else if (key == "win") {
                     string[] p = val.Split(',');
                     if (p.Length == 4) {
@@ -2098,6 +2912,8 @@ public class MainForm : Form {
                 else if (key.StartsWith("preset.")) presets[key.Substring(7)] = val;
             }
             RefreshPresets(null);
+            if (watchOn && watchDir.Text.Trim().Length > 0 && Directory.Exists(watchDir.Text.Trim()))
+                ToggleWatcher(true);
         } catch (Exception) { }
     }
 
@@ -2108,6 +2924,11 @@ public class MainForm : Form {
             sb.AppendLine("theme=" + (dark ? "dark" : "light"));
             sb.AppendLine("opts=" + CurrentOptions().ToBits());
             sb.AppendLine("top=" + (cTop.Checked ? "1" : "0"));
+            sb.AppendLine("watchdir=" + watchDir.Text.Trim());
+            sb.AppendLine("watchon=" + (watcher.Running ? "1" : "0"));
+            sb.AppendLine("bak=" + (cBak.Checked ? "1" : "0"));
+            sb.AppendLine("wrapon=" + (cWrap.Checked ? "1" : "0"));
+            sb.AppendLine("wrapw=" + ((int)numWrap.Value).ToString());
             Rectangle r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
             sb.AppendLine("win=" + r.X + "," + r.Y + "," + r.Width + "," + r.Height);
             foreach (KeyValuePair<string, string> kv in presets) sb.AppendLine("preset." + kv.Key + "=" + kv.Value);
@@ -2121,30 +2942,34 @@ public class MainForm : Form {
         BackColor = th.Bg;
         header.BackColor = th.Panel;
         bTheme.Text = dark ? "\u2600" : "\u263D";
-        foreach (Button b in new Button[] { bImport, bExport, bTheme, bAbout, bClip, bRestore, bClear, bSavePreset, bDelPreset }) {
-            b.BackColor = th.Panel;
-            b.ForeColor = th.Text;
-            b.FlatAppearance.BorderColor = th.Border;
-            b.FlatAppearance.BorderSize = 1;
+        tabQuick.BackColor = th.Bg; tabFiles.BackColor = th.Bg; tabWatch.BackColor = th.Bg;
+        foreach (Button b in new Button[] { bImport, bExport, bTheme, bAbout, bClip, bRestore, bClear,
+                bSavePreset, bDelPreset, bOpenFile, bOverwrite, bReport, bCheckAll, bCheckNone, bCopyText, bBrowse }) {
+            b.BackColor = th.Panel; b.ForeColor = th.Text;
+            b.FlatAppearance.BorderColor = th.Border; b.FlatAppearance.BorderSize = 1;
         }
-        bConvert.BackColor = th.Accent;
-        bConvert.ForeColor = th.AccentText;
-        foreach (Label l in new Label[] { lblInput, lblPreview }) l.ForeColor = th.Sub;
+        foreach (Button b in new Button[] { bConvert, bSaveAs, bWatchToggle }) {
+            b.BackColor = th.Accent; b.ForeColor = th.AccentText;
+        }
+        foreach (Label l in new Label[] { lblInput, lblPreview, lblOrig, lblFixed, lblFileNote, lblLogCap, lblWatchNote }) l.ForeColor = th.Sub;
         inspector.ForeColor = th.Accent;
-        input.BackColor = th.InputBg;
-        input.ForeColor = th.Text;
-        preview.Th = th;
-        preview.BackColor = th.PreviewBg;
-        preview.Invalidate();
+        fileStatus.ForeColor = th.Accent;
+        foreach (TextBox t in new TextBox[] { input, origBox, watchDir }) { t.BackColor = th.InputBg; t.ForeColor = th.Text; }
+        preview.Th = th; preview.BackColor = th.PreviewBg; preview.Invalidate();
+        fixedPrev.Th = th; fixedPrev.BackColor = th.PreviewBg; fixedPrev.Invalidate();
         optBox.ForeColor = th.Text;
-        foreach (CheckBox c in new CheckBox[] { cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop }) c.ForeColor = th.Text;
-        foreach (Control c in Controls) {
-            if (c is Label && c != lblInput && c != lblPreview && c != inspector) c.ForeColor = th.Text;
+        foreach (CheckBox c in new CheckBox[] { cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap, cBak }) c.ForeColor = th.Text;
+        lblWrapCap.ForeColor = th.Sub;
+        numWrap.BackColor = th.InputBg; numWrap.ForeColor = th.Text;
+        foreach (Control page in new Control[] { tabQuick, tabFiles, tabWatch }) {
+            foreach (Control c in page.Controls) {
+                if (c is Label && c != lblInput && c != lblPreview && c != inspector
+                    && c != lblOrig && c != lblFixed && c != lblFileNote && c != fileStatus) c.ForeColor = th.Text;
+            }
         }
-        foreach (ComboBox cb in new ComboBox[] { cmbPreset, cmbHistory }) {
-            cb.BackColor = th.InputBg;
-            cb.ForeColor = th.Text;
-        }
+        list.BackColor = th.InputBg; list.ForeColor = th.Text;
+        watchLog.BackColor = th.InputBg; watchLog.ForeColor = th.Text;
+        foreach (ComboBox cb in new ComboBox[] { cmbPreset, cmbHistory }) { cb.BackColor = th.InputBg; cb.ForeColor = th.Text; }
         status.ForeColor = th.Good;
     }
 
@@ -2153,31 +2978,131 @@ public class MainForm : Form {
         status.Text = msg;
     }
 
-    // ---------------- hotkey ----------------
+    // ---------------- global hotkeys ----------------
     protected override void OnHandleCreated(EventArgs e) {
         base.OnHandleCreated(e);
-        try { hotkeyOk = RegisterHotKey(Handle, HOTKEY_ID, 0x0002 | 0x0001, (int)Keys.R); }
-        catch (Exception) { hotkeyOk = false; }
-        if (!hotkeyOk) Say("Hotkey Ctrl+Alt+R not available; buttons still work.", false);
-        else Say("Ready. Copy RTL text anywhere, press Ctrl+Alt+R, paste into Affinity.", true);
+        try {
+            hkClip = RegisterHotKey(Handle, HK_CLIPBOARD, MOD_CONTROL | MOD_ALT, (int)Keys.R);
+            hkFix = RegisterHotKey(Handle, HK_FIXBOX, MOD_CONTROL | MOD_ALT, (int)Keys.F);
+            hkRestore = RegisterHotKey(Handle, HK_RESTOREBOX, MOD_CONTROL | MOD_ALT, (int)Keys.Z);
+        } catch (Exception) { }
+        string msg = "Ready.";
+        if (hkClip) msg += " Ctrl+Alt+R = fix clipboard.";
+        if (hkFix) msg += " Ctrl+Alt+F = fix the Affinity text box you are in.";
+        Say(msg, true);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e) {
-        try { if (hotkeyOk) UnregisterHotKey(Handle, HOTKEY_ID); } catch (Exception) { }
+        try {
+            if (hkClip) UnregisterHotKey(Handle, HK_CLIPBOARD);
+            if (hkFix) UnregisterHotKey(Handle, HK_FIXBOX);
+            if (hkRestore) UnregisterHotKey(Handle, HK_RESTOREBOX);
+        } catch (Exception) { }
+        watcher.Stop();
+        tray.Visible = false;
+        tray.Dispose();
         SaveSettings();
         base.OnFormClosed(e);
     }
 
     protected override void WndProc(ref Message m) {
-        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID) FixClipboard();
+        if (m.Msg == WM_HOTKEY) {
+            int id = m.WParam.ToInt32();
+            if (id == HK_CLIPBOARD) FixClipboard();
+            else if (id == HK_FIXBOX) FixActiveTextBox(false);
+            else if (id == HK_RESTOREBOX) FixActiveTextBox(true);
+        }
         base.WndProc(ref m);
+    }
+
+    // wait until physical Ctrl/Alt/Shift are released so simulated keys
+    // are not contaminated by the hotkey chord itself
+    bool WaitModifiersUp(int timeoutMs) {
+        int waited = 0;
+        while (waited < timeoutMs) {
+            bool down = (GetAsyncKeyState(0x11) & 0x8000) != 0   // ctrl
+                     || (GetAsyncKeyState(0x12) & 0x8000) != 0   // alt
+                     || (GetAsyncKeyState(0x10) & 0x8000) != 0;  // shift
+            if (!down) return true;
+            Thread.Sleep(20);
+            waited += 20;
+        }
+        return false;
+    }
+
+    // The in-Affinity fixer: select-all + copy the active text box,
+    // convert (or restore), paste back, restore the user's clipboard.
+    // Safety: if nothing usable was captured, NOTHING is pasted.
+    void FixActiveTextBox(bool restoreMode) {
+        if (!WaitModifiersUp(1500)) { TrayTip("NassakhRTL", "Release Ctrl+Alt first, then try again.", false); return; }
+        string savedClip = null;
+        try { if (Clipboard.ContainsText()) savedClip = Clipboard.GetText(); } catch (Exception) { }
+        try { Clipboard.Clear(); } catch (Exception) { }
+
+        try {
+            SendKeys.SendWait("^a");
+            Thread.Sleep(80);
+            SendKeys.SendWait("^c");
+            Thread.Sleep(220);
+        } catch (Exception) { RestoreClip(savedClip); return; }
+
+        string captured = null;
+        try { if (Clipboard.ContainsText()) captured = Clipboard.GetText(); } catch (Exception) { }
+
+        if (captured == null || captured.Trim().Length == 0) {
+            RestoreClip(savedClip);
+            TrayTip("NassakhRTL", "No text captured. Click inside a text box (text edit mode) first.", false);
+            return;
+        }
+
+        string outp;
+        if (restoreMode) {
+            if (!Engine.LooksConverted(captured)) {
+                RestoreClip(savedClip);
+                TrayTip("NassakhRTL", "This text box does not contain converted text.", false);
+                return;
+            }
+            outp = Engine.Restore(captured);
+        } else {
+            if (Engine.LooksLikeMarkup(captured)) {
+                RestoreClip(savedClip);
+                TrayTip("NassakhRTL", "Captured content is file markup, not text. Nothing was changed.", false);
+                return;
+            }
+            if (Engine.LooksConverted(captured)) {
+                RestoreClip(savedClip);
+                TrayTip("NassakhRTL", "This text box is already converted. Ctrl+Alt+Z restores it.", false);
+                return;
+            }
+            if (!Engine.HasRtl(captured)) {
+                RestoreClip(savedClip);
+                TrayTip("NassakhRTL", "No RTL text found in this box. Nothing was changed.", false);
+                return;
+            }
+            outp = Engine.Convert(captured, CurrentOptions()).Text;
+            // a text box is one block; Affinity treats \r\n fine, keep as is
+        }
+
+        try {
+            Clipboard.SetText(outp);
+            SendKeys.SendWait("^v");
+            Thread.Sleep(280);
+        } catch (Exception) { }
+        RestoreClip(savedClip);
+        System.Media.SystemSounds.Asterisk.Play();
+        TrayTip("NassakhRTL", restoreMode ? "Text box restored to editable text." : "Text box fixed for Affinity.", true);
+    }
+
+    void RestoreClip(string saved) {
+        if (saved == null) return;
+        try { Clipboard.SetText(saved); } catch (Exception) { }
     }
 }
 }
 
 '@
 
-Add-Type -TypeDefinition $source -ReferencedAssemblies @('System.Windows.Forms','System.Drawing','System.Core')
+Add-Type -TypeDefinition $source -ReferencedAssemblies @('System.Windows.Forms','System.Drawing','System.Core','System.Xml')
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $form = New-Object RTLFixer.MainForm

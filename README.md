@@ -4,6 +4,7 @@
 
 **Fix Arabic, Hebrew, Persian, and Urdu text for Affinity apps — instantly.**
 
+[![Version](https://img.shields.io/badge/Version-2.0.2-1e9b8c)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)](https://github.com/talhabinmunir/nassakhrtl/releases)
 [![Download](https://img.shields.io/badge/Download-.exe-22c55e)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 [![Gumroad](https://img.shields.io/badge/Download-Gumroad-FF90E8?logo=gumroad&logoColor=white)](https://1712812868996.gumroad.com/l/nassakhrtl)
@@ -32,54 +33,66 @@ Letters appear disconnected, isolated, and in the wrong order. NassakhRTL fixes 
 
 ---
 
-## How it works
+## What is new in v2.0
 
-NassakhRTL converts each letter to its correct contextual glyph form (initial, medial, final, or isolated), applies lam-alef ligatures, then reverses each line into visual order — which is what a left-to-right renderer like Affinity expects. The result pastes in and renders correctly.
+### Fix text directly inside Affinity — no copy-paste
+
+**Type in Affinity → press one key → done.**
+
+| Hotkey | What it does |
+|---|---|
+| **Ctrl + Alt + F** | Fix the text box you are currently in inside Affinity |
+| **Ctrl + Alt + Z** | Restore a converted text box back to editable text |
+| **Ctrl + Alt + R** | Fix whatever is in the clipboard (v1 behaviour) |
+
+NassakhRTL selects the box content, converts it, and pastes it back automatically. Your previous clipboard is preserved. If the box has no RTL text, is already converted, or the selection fails — nothing is changed.
+
+### SVG / TXT File Editor
+
+Open an SVG or TXT file exported from Affinity. Every RTL text item is listed with its element name and change count. Preview original vs fixed side by side. Approve individual items or all at once. Save As a new file, or overwrite with an automatic `.bak` backup. Export a fix report for client sign-off.
+
+### Folder Watcher
+
+Point NassakhRTL at your project folder. Any `.txt` or `.svg` file you export from Affinity is fixed automatically in the background — with a `.bak` of the original kept and a tray notification confirming the fix.
+
+### System tray
+
+Minimize to tray. NassakhRTL sits quietly in the background while you work. Fix clipboard or toggle the watcher from the tray menu without opening the window.
 
 ---
 
 ## Quick start
 
-**Option A — hotkey (fastest)**
+**The fastest workflow (v2):**
+1. Run NassakhRTL (minimized to tray is fine).
+2. In Affinity, double-click a text frame to enter text editing mode.
+3. Type or paste your Arabic/Urdu/Hebrew text.
+4. Press **Ctrl + Alt + F**.
+5. Text is fixed in place. Paste into any other Affinity frame with Ctrl + V if needed.
 
-1. Keep NassakhRTL running in the background.
-2. Copy any RTL text from anywhere.
-3. Press **Ctrl + Alt + R**.
-4. Paste into Affinity with **Ctrl + V**.
-
-**Option B — via the app window**
-
-1. Paste or type text into the input box.
-2. Check the Affinity Preview panel to confirm it looks right.
-3. Click **Convert + Copy**.
-4. Paste into Affinity.
+**Classic clipboard workflow (v1, still works):**
+1. Copy RTL text from anywhere.
+2. Press **Ctrl + Alt + R**.
+3. Paste into Affinity with Ctrl + V.
 
 ---
 
-## Download & run
+## Download
 
-Single `.exe` file — double-click and go. No installation, no Python, no .NET SDK.
+Single `.exe` — double-click and go. No installation, no Python, no .NET SDK.
 
-### Option 1 — GitHub Releases (recommended)
+**GitHub Releases (recommended):**
+[https://github.com/talhabinmunir/nassakhrtl/releases/latest](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 
-1. Go to [Releases](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
-2. Download `NassakhRTL.exe`
-3. Double-click to run
-
-### Option 2 — Gumroad
-
+**Gumroad (free / pay what you want):**
 [https://1712812868996.gumroad.com/l/nassakhrtl](https://1712812868996.gumroad.com/l/nassakhrtl)
 
-Free download. Pay what you want.
-
----
-
 > **SmartScreen warning:** Windows may show "Windows protected your PC" because the
-> file is new and unsigned. Click **More info → Run anyway**. This is normal for all
-> new indie software. The full source code is readable in `NassakhRTL.ps1`.
+> file is new and unsigned. Click **More info → Run anyway**. The full source code
+> is readable in `NassakhRTL.ps1`.
 
 > **Tip:** Put a shortcut to `NassakhRTL.exe` in your Windows Startup folder
-> (`Win + R` → `shell:startup`) so it opens automatically with Windows.
+> (`Win + R` → `shell:startup`) so it is always running when you open Affinity.
 
 ---
 
@@ -87,24 +100,28 @@ Free download. Pay what you want.
 
 | Feature | Details |
 |---|---|
+| **Ctrl+Alt+F in-Affinity fix** | Fixes the active Affinity text box in place — no copy-paste needed |
+| **Ctrl+Alt+Z restore** | Restores a converted box to editable logical text |
 | **Arabic shaping** | Contextual letter forms + lam-alef ligatures |
 | **Visual reorder** | Lines reversed for LTR renderers; Latin runs stay in place |
 | **Affinity preview** | Live preview exactly matching Affinity rendering |
 | **Character inspector** | Click any glyph → Unicode codepoint, name, and origin |
+| **SVG / TXT File Editor** | Open exported files, review diffs, apply per item, Save As or Overwrite with .bak |
+| **Fix report export** | Save a .txt record of every change for client sign-off |
+| **Folder Watcher** | Auto-fixes exported files; .bak always kept; tray notifications |
+| **System tray** | Minimize to tray, quick menu, balloon notifications |
 | **Arabic digits → 0-9** | ٠١٢٣٤٥٦٧٨٩ converted on the fly |
 | **Remove diacritics** | Optional: strips harakat (Arabic) and niqqud (Hebrew) |
 | **Remove tatweel** | Optional: removes ـ elongation marks |
 | **Arabic → Latin punctuation** | ، ؛ ؟ → , ; ? |
 | **Alef unification** | أ إ آ → ا (off by default, changes spelling) |
 | **Hidden char removal** | Strips ZWSP, BOM, direction marks |
-| **Drag and drop** | Drop a .txt file directly onto the app |
+| **Drag and drop** | Drop .txt or .svg files directly onto the app |
 | **Import / Export** | .txt and .json (original + converted, with metadata) |
 | **Presets** | Save named option sets per client or language |
 | **History** | Last 10 conversions, one click to restore |
 | **Dark / Light theme** | Persistent across sessions |
-| **Settings persistence** | Window position, options, presets saved automatically |
-| **Global hotkey** | Ctrl + Alt + R from any open application |
-| **Keyboard shortcuts** | Ctrl + Enter to convert, Ctrl + Shift + V to paste-and-fix |
+| **Settings persistence** | Window, options, presets, watcher folder saved automatically |
 | **Languages** | Arabic, Persian, Urdu, Hebrew |
 | **Privacy** | Fully offline, zero telemetry, no network calls |
 
@@ -117,23 +134,30 @@ Free download. Pay what you want.
 | Arabic | Arabic | Full shaping + ligatures |
 | Persian / Farsi | Perso-Arabic | Additional letters: پ چ ژ گ |
 | Urdu | Nastaliq subset | Additional letters: ٹ ڈ ڑ ں ھ ہ ی ے |
-| Hebrew | Hebrew | Reversal only (Hebrew is already Unicode-encoded correctly) |
+| Hebrew | Hebrew | Reversal only (Unicode-encoded correctly already) |
 
 ---
 
 ## Screenshots
 
 <details>
-<summary>Light theme</summary>
+<summary>Quick Fix tab — light theme</summary>
 
-![Light theme](assets/screenshot-light.png)
+![Quick Fix](assets/screenshot-light.png)
 
 </details>
 
 <details>
-<summary>Dark theme</summary>
+<summary>Files tab — SVG editor</summary>
 
-![Dark theme](assets/screenshot-dark.png)
+![Files tab](assets/screenshot-files.png)
+
+</details>
+
+<details>
+<summary>Folder Watcher tab — dark theme</summary>
+
+![Watcher tab](assets/screenshot-watcher.png)
 
 </details>
 
@@ -143,22 +167,23 @@ Free download. Pay what you want.
 
 - Windows 10 or Windows 11
 - No installation needed
-- Arial font (installed on every Windows machine by default)
+- Arial font (on every Windows machine by default)
 
 ---
 
 ## Files in this repo
 
 ```
-NassakhRTL.exe       ← download and run (single file)
-NassakhRTL.ps1       ← full source code (C# embedded in PowerShell)
-NassakhRTL.bat       ← alternative launcher (runs the .ps1 directly)
-NassakhRTL.ico       ← app icon (all sizes)
+NassakhRTL.exe       <- download and run (single file)
+NassakhRTL.ps1       <- full source code
+NassakhRTL.bat       <- alternative launcher (runs .ps1 directly)
+NassakhRTL.ico       <- app icon
 assets/
   NassakhRTL-icon.svg
   NassakhRTL-logo.svg
   screenshot-light.png
-  screenshot-dark.png
+  screenshot-files.png
+  screenshot-watcher.png
 README.md
 INSTRUCTIONS.md
 CHANGELOG.md
@@ -170,8 +195,6 @@ LICENSE
 
 ## Build from source
 
-If you want to build the `.exe` yourself from the `.ps1` source:
-
 ```powershell
 # Install ps2exe (one time)
 Install-Module -Name ps2exe -Scope CurrentUser -Force
@@ -181,8 +204,17 @@ Invoke-ps2exe -InputFile .\NassakhRTL.ps1 -OutputFile .\NassakhRTL.exe `
   -IconFile .\NassakhRTL.ico -NoConsole -STA `
   -title "NassakhRTL" -product "NassakhRTL" `
   -description "RTL Text Fixer for Affinity" `
-  -company "Talha bin Munir" -version "1.0.0.0"
+  -company "Talha bin Munir" -version "2.0.2.0"
 ```
+
+---
+
+## Why not native .afdesign editing?
+
+The `.afdesign` format has no public specification. Writing bytes back into it
+without a spec risks corrupting client files. The safe round-trip is:
+**Affinity → Export SVG (Text as text) → fix in NassakhRTL → open fixed SVG in Affinity.**
+Native .afdesign support will be added if Serif publishes a file format specification.
 
 ---
 
