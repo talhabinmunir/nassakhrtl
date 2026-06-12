@@ -5,7 +5,8 @@
 **Fix Arabic, Hebrew, Persian, and Urdu text for Affinity apps — instantly.**
 
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)](https://github.com/talhabinmunir/nassakhrtl/releases)
-[![No Install](https://img.shields.io/badge/No%20Install-Required-22c55e)](https://github.com/talhabinmunir/nassakhrtl/releases)
+[![Download](https://img.shields.io/badge/Download-.exe-22c55e)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
+[![Gumroad](https://img.shields.io/badge/Download-Gumroad-FF90E8?logo=gumroad&logoColor=white)](https://1712812868996.gumroad.com/l/nassakhrtl)
 [![License](https://img.shields.io/badge/License-MIT-teal)](LICENSE)
 [![Made by Talha](https://img.shields.io/badge/Made%20by-Talha%20bin%20Munir-1e9b8c)](mailto:tlhmunir@gmail.com)
 
@@ -57,16 +58,28 @@ NassakhRTL converts each letter to its correct contextual glyph form (initial, m
 
 ## Download & run
 
-No installation. No Python. No .NET SDK. Runs on any Windows 10 or 11 machine.
+Single `.exe` file — double-click and go. No installation, no Python, no .NET SDK.
+
+### Option 1 — GitHub Releases (recommended)
 
 1. Go to [Releases](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
-2. Download `NassakhRTL.bat` and `NassakhRTL.ps1` — keep them in the same folder
-3. Double-click `NassakhRTL.bat`
+2. Download `NassakhRTL.exe`
+3. Double-click to run
 
-If Windows shows a blue SmartScreen warning, click **More info → Run anyway**. This appears because the file is new and unsigned. The source is fully readable in `NassakhRTL.ps1`.
+### Option 2 — Gumroad
 
-> **Tip:** Put a shortcut to `NassakhRTL.bat` in your Windows Startup folder
-> (`Win + R` → `shell:startup`) so it opens automatically.
+[https://1712812868996.gumroad.com/l/nassakhrtl](https://1712812868996.gumroad.com/l/nassakhrtl)
+
+Free download. Pay what you want.
+
+---
+
+> **SmartScreen warning:** Windows may show "Windows protected your PC" because the
+> file is new and unsigned. Click **More info → Run anyway**. This is normal for all
+> new indie software. The full source code is readable in `NassakhRTL.ps1`.
+
+> **Tip:** Put a shortcut to `NassakhRTL.exe` in your Windows Startup folder
+> (`Win + R` → `shell:startup`) so it opens automatically with Windows.
 
 ---
 
@@ -129,7 +142,7 @@ If Windows shows a blue SmartScreen warning, click **More info → Run anyway**.
 ## Requirements
 
 - Windows 10 or Windows 11
-- PowerShell 5.1 (built into Windows, no download needed)
+- No installation needed
 - Arial font (installed on every Windows machine by default)
 
 ---
@@ -137,8 +150,10 @@ If Windows shows a blue SmartScreen warning, click **More info → Run anyway**.
 ## Files in this repo
 
 ```
-NassakhRTL.bat       ← double-click to launch
-NassakhRTL.ps1       ← full source (C# embedded in PowerShell)
+NassakhRTL.exe       ← download and run (single file)
+NassakhRTL.ps1       ← full source code (C# embedded in PowerShell)
+NassakhRTL.bat       ← alternative launcher (runs the .ps1 directly)
+NassakhRTL.ico       ← app icon (all sizes)
 assets/
   NassakhRTL-icon.svg
   NassakhRTL-logo.svg
@@ -153,11 +168,30 @@ LICENSE
 
 ---
 
+## Build from source
+
+If you want to build the `.exe` yourself from the `.ps1` source:
+
+```powershell
+# Install ps2exe (one time)
+Install-Module -Name ps2exe -Scope CurrentUser -Force
+
+# Build
+Invoke-ps2exe -InputFile .\NassakhRTL.ps1 -OutputFile .\NassakhRTL.exe `
+  -IconFile .\NassakhRTL.ico -NoConsole -STA `
+  -title "NassakhRTL" -product "NassakhRTL" `
+  -description "RTL Text Fixer for Affinity" `
+  -company "Talha bin Munir" -version "1.0.0.0"
+```
+
+---
+
 ## Author
 
 **Talha bin Munir**
 tlhmunir@gmail.com
 [github.com/talhabinmunir](https://github.com/talhabinmunir)
+[youtube.com/@Talhabinmuneer](https://www.youtube.com/@Talhabinmuneer)
 
 ---
 
