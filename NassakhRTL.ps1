@@ -1,5 +1,5 @@
 # =====================================================================
-#  NassakhRTL 2.0.2  -  RTL text fixer for Affinity apps (Windows)
+#  NassakhRTL 2.1  -  RTL text fixer for Affinity apps (Windows)
 #  Arabic - Persian - Urdu - Hebrew
 #
 #  Start with:  NassakhRTL.bat  (same folder)  or build NassakhRTL.exe
@@ -1023,7 +1023,9 @@ public class FixOptions {
     // order comes out bottom-to-top.
     public int WrapWidth = 0;
 
-    // serialize to/from a 7-char bit string for settings/presets
+    // Serialize to/from a 7-char bit string for settings/presets.
+    // WrapWidth is appended as ":N" so presets round-trip it; the suffix is
+    // optional, so 2.0.x settings files with a bare 7-char string still load.
     public string ToBits() {
         char[] b = new char[7];
         b[0] = WesternDigits ? '1' : '0';
@@ -1033,7 +1035,9 @@ public class FixOptions {
         b[4] = PunctToLatin ? '1' : '0';
         b[5] = NormalizeAlef ? '1' : '0';
         b[6] = NormalizeYaTa ? '1' : '0';
-        return new string(b);
+        string s = new string(b);
+        if (WrapWidth > 0) s += ":" + WrapWidth.ToString();
+        return s;
     }
     public static FixOptions FromBits(string s) {
         FixOptions o = new FixOptions();
@@ -1045,6 +1049,11 @@ public class FixOptions {
         o.PunctToLatin = s[4] == '1';
         o.NormalizeAlef = s[5] == '1';
         o.NormalizeYaTa = s[6] == '1';
+        int colon = s.IndexOf(':');
+        if (colon >= 7 && colon + 1 < s.Length) {
+            int w;
+            if (int.TryParse(s.Substring(colon + 1), out w) && w >= 20 && w <= 200) o.WrapWidth = w;
+        }
         return o;
     }
 }
@@ -1441,37 +1450,527 @@ public static class Engine {
 // ------------------------------------------------------------------ //
 //  Theme
 // ------------------------------------------------------------------ //
+// ------------------------------------------------------------------ //
+//  Theme - lavender / card design language (light + dark)
+//  Field names from 2.0.x are kept so PreviewPanel, PromptDialog and
+//  AboutDialog keep compiling unchanged.
+// ------------------------------------------------------------------ //
+// Anchored on the logo's teal #1E9B8C (the v1.0/v2.0 brand colour).
+//
+// The accent is split into three roles because the brand teal on white is only
+// 3.43:1 - fine for non-text marks (WCAG 1.4.11 needs 3:1) but short of the
+// 4.5:1 AA needs for text sitting on it:
+//   Accent     - the brand teal itself, for graphics: donut rings, toggle and
+//                checkbox fills, focus rings, outlines
+//   AccentFill - primary button background, deepened so a white label passes AA
+//   AccentInk  - accent-coloured TEXT on card or tint (5.6:1+)
 public class Theme {
     public Color Bg, Panel, Text, Sub, Border, Accent, AccentText, InputBg, PreviewBg, Good, Bad;
+    public Color Card, Sidebar, AccentSoft, Shadow, Track;
+    public Color AccentFill, AccentInk, AccentHover, AccentPress;
+    public bool IsDark = false;
+
     public static Theme Light() {
         Theme t = new Theme();
-        t.Bg = Color.White;
-        t.Panel = Color.FromArgb(243, 246, 245);
-        t.Text = Color.FromArgb(21, 24, 26);
-        t.Sub = Color.FromArgb(96, 106, 106);
-        t.Border = Color.FromArgb(212, 218, 217);
-        t.Accent = Color.FromArgb(30, 155, 140);
+        t.IsDark = false;
+        t.Bg = Color.FromArgb(245, 248, 248);
+        t.Card = Color.White;
+        t.Sidebar = Color.White;
+        t.Panel = Color.FromArgb(245, 248, 248);
+        t.Text = Color.FromArgb(26, 46, 43);
+        t.Sub = Color.FromArgb(94, 107, 112);
+        t.Border = Color.FromArgb(220, 231, 229);
+        t.Accent = Color.FromArgb(30, 155, 140);        // #1E9B8C brand
+        t.AccentFill = Color.FromArgb(23, 120, 108);    // #17786C
+        t.AccentHover = Color.FromArgb(19, 107, 98);    // #136B62
+        t.AccentPress = Color.FromArgb(15, 90, 82);     // #0F5A52
+        t.AccentInk = Color.FromArgb(19, 107, 98);      // #136B62
+        t.AccentSoft = Color.FromArgb(227, 244, 242);   // #E3F4F2
         t.AccentText = Color.White;
         t.InputBg = Color.White;
-        t.PreviewBg = Color.FromArgb(249, 251, 250);
-        t.Good = Color.FromArgb(20, 130, 117);
-        t.Bad = Color.FromArgb(176, 58, 48);
+        t.PreviewBg = Color.FromArgb(250, 252, 252);
+        t.Good = Color.FromArgb(46, 125, 79);           // #2E7D4F
+        t.Bad = Color.FromArgb(198, 40, 40);            // #C62828
+        t.Shadow = Color.FromArgb(18, 0, 0, 0);
+        t.Track = Color.FromArgb(230, 237, 236);
         return t;
     }
+
     public static Theme Dark() {
         Theme t = new Theme();
-        t.Bg = Color.FromArgb(25, 31, 33);
-        t.Panel = Color.FromArgb(33, 41, 43);
-        t.Text = Color.FromArgb(232, 236, 236);
-        t.Sub = Color.FromArgb(148, 160, 160);
-        t.Border = Color.FromArgb(58, 70, 72);
-        t.Accent = Color.FromArgb(30, 155, 140);
-        t.AccentText = Color.White;
-        t.InputBg = Color.FromArgb(20, 25, 27);
-        t.PreviewBg = Color.FromArgb(20, 25, 27);
-        t.Good = Color.FromArgb(94, 205, 188);
-        t.Bad = Color.FromArgb(235, 130, 120);
+        t.IsDark = true;
+        t.Bg = Color.FromArgb(18, 26, 25);              // #121A19
+        t.Card = Color.FromArgb(28, 38, 36);            // #1C2624
+        t.Sidebar = Color.FromArgb(28, 38, 36);
+        t.Panel = Color.FromArgb(18, 26, 25);
+        t.Text = Color.FromArgb(234, 242, 241);         // #EAF2F1
+        t.Sub = Color.FromArgb(159, 178, 175);          // #9FB2AF
+        t.Border = Color.FromArgb(42, 55, 53);          // #2A3735
+        t.Accent = Color.FromArgb(43, 187, 169);        // #2BBBA9 brand, lifted for dark
+        t.AccentFill = Color.FromArgb(43, 187, 169);
+        t.AccentHover = Color.FromArgb(52, 205, 186);   // #34CDBA
+        t.AccentPress = Color.FromArgb(33, 162, 146);   // #21A292
+        t.AccentInk = Color.FromArgb(95, 217, 200);     // #5FD9C8
+        t.AccentSoft = Color.FromArgb(23, 48, 44);      // #17302C
+        t.AccentText = Color.FromArgb(6, 35, 31);       // dark ink on bright teal
+        t.InputBg = Color.FromArgb(23, 31, 30);
+        t.PreviewBg = Color.FromArgb(23, 31, 30);
+        t.Good = Color.FromArgb(91, 214, 140);          // #5BD68C
+        t.Bad = Color.FromArgb(255, 138, 133);          // #FF8A85
+        t.Shadow = Color.FromArgb(90, 0, 0, 0);
+        t.Track = Color.FromArgb(42, 55, 53);
         return t;
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Shared drawing helpers + font stack resolution
+// ------------------------------------------------------------------ //
+public static class Ui {
+    static string family = null;
+
+    // prefer a modern geometric sans when the user has one, else Segoe UI
+    public static string Family() {
+        if (family != null) return family;
+        string[] want = new string[] { "Inter", "Poppins", "Segoe UI Variable Text", "Segoe UI" };
+        List<string> have = new List<string>();
+        try {
+            foreach (FontFamily f in FontFamily.Families) have.Add(f.Name);
+        } catch (Exception) { }
+        foreach (string w in want) {
+            if (have.Contains(w)) { family = w; return family; }
+        }
+        family = "Segoe UI";
+        return family;
+    }
+
+    public static Font F(float size, FontStyle style) {
+        try { return new Font(Family(), size, style); }
+        catch (Exception) { return new Font("Segoe UI", size, style); }
+    }
+    public static Font F(float size) { return F(size, FontStyle.Regular); }
+
+    public static GraphicsPath Round(Rectangle r, int radius) {
+        GraphicsPath p = new GraphicsPath();
+        if (radius <= 0) { p.AddRectangle(r); return p; }
+        int d = radius * 2;
+        if (d > r.Width) d = r.Width;
+        if (d > r.Height) d = r.Height;
+        p.AddArc(r.X, r.Y, d, d, 180, 90);
+        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    // cheap layered soft shadow - no blur available in plain GDI+
+    public static void Shadow(Graphics g, Rectangle r, int radius, Color shade, int spread) {
+        for (int i = spread; i >= 1; i--) {
+            Rectangle rr = new Rectangle(r.X - i, r.Y - i + 1, r.Width + i * 2, r.Height + i * 2);
+            int a = (int)(shade.A / (float)(i * 2.2f));
+            if (a < 1) continue;
+            using (GraphicsPath p = Round(rr, radius + i))
+            using (Pen pen = new Pen(Color.FromArgb(a, shade.R, shade.G, shade.B), 1f)) {
+                g.DrawPath(pen, p);
+            }
+        }
+    }
+
+    public static void Card(Graphics g, Rectangle r, Theme th, int radius, bool shadow) {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (shadow) Shadow(g, r, radius, th.Shadow, 5);
+        using (GraphicsPath p = Round(r, radius))
+        using (Brush b = new SolidBrush(th.Card)) {
+            g.FillPath(b, p);
+            using (Pen pen = new Pen(th.Border, 1f)) g.DrawPath(pen, p);
+        }
+    }
+
+    public static void FocusRing(Graphics g, Rectangle r, int radius, Color accent) {
+        using (GraphicsPath p = Round(Rectangle.Inflate(r, 2, 2), radius + 2))
+        using (Pen pen = new Pen(Color.FromArgb(140, accent), 2f)) {
+            g.DrawPath(pen, p);
+        }
+    }
+
+    public static Color Mix(Color a, Color b, float t) {
+        return Color.FromArgb(
+            (int)(a.R + (b.R - a.R) * t),
+            (int)(a.G + (b.G - a.G) * t),
+            (int)(a.B + (b.B - a.B) * t));
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Rounded white surface with a soft shadow. Children sit on top.
+// ------------------------------------------------------------------ //
+public class CardPanel : Panel {
+    public Theme Th = Theme.Light();
+    public int Radius = 14;
+    public bool Shadowed = true;
+    public string Title = "";
+
+    public CardPanel() {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.ResizeRedraw, true);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.Clear(Th.Bg);
+        Rectangle r = new Rectangle(6, 6, Width - 13, Height - 13);
+        if (r.Width < 4 || r.Height < 4) return;
+        Ui.Card(g, r, Th, Radius, Shadowed);
+        if (Title != null && Title.Length > 0) {
+            using (Font f = Ui.F(11.5F, FontStyle.Bold))
+            using (Brush b = new SolidBrush(Th.Text)) {
+                g.DrawString(Title, f, b, r.X + 18, r.Y + 15);
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Pill button - Primary (filled), Secondary (outlined), Ghost (text).
+//  Keyboard accessible: tab stop, Enter/Space activate, visible focus.
+// ------------------------------------------------------------------ //
+public class PillButton : Control {
+    public const int Primary = 0, Secondary = 1, Ghost = 2;
+    public int Kind = Primary;
+    public Theme Th = Theme.Light();
+    public string Glyph = "";
+    bool hot = false, down = false;
+
+    public PillButton() {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
+        TabStop = true;
+        Height = 38;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hot = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hot = false; down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { down = true; Focus(); Invalidate(); base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { down = false; Invalidate(); base.OnMouseUp(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+    protected override bool IsInputKey(Keys k) {
+        if (k == Keys.Space || k == Keys.Enter) return true;
+        return base.IsInputKey(k);
+    }
+    protected override void OnKeyDown(KeyEventArgs e) {
+        if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) {
+            down = true; Invalidate();
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
+    }
+    protected override void OnKeyUp(KeyEventArgs e) {
+        if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) {
+            down = false; Invalidate();
+            OnClick(EventArgs.Empty);
+            e.Handled = true;
+        }
+        base.OnKeyUp(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        // a CardPanel paints the page bg outside its rounded rect, so reading
+        // Parent.BackColor here left grey bands across the card surface
+        g.Clear(Parent is CardPanel ? Th.Card : (Parent != null ? Parent.BackColor : Th.Card));
+        Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
+        int rad = Height / 2;
+
+        Color fill, fore, edge = Color.Empty;
+        if (Kind == Primary) {
+            // explicit hover/press tones per theme: lightening a teal fill would
+            // drop the white label below AA, so both states go deeper in light
+            fill = Th.AccentFill;
+            if (hot) fill = Th.AccentHover;
+            if (down) fill = Th.AccentPress;
+            fore = Th.AccentText;
+        } else if (Kind == Secondary) {
+            fill = hot ? Th.AccentSoft : Th.Card;
+            if (down) fill = Ui.Mix(Th.AccentSoft, Th.Accent, 0.18f);
+            fore = Th.AccentInk;
+            edge = Th.Accent;
+        } else {
+            fill = hot ? Th.AccentSoft : Color.Transparent;
+            fore = Th.Sub;
+            if (hot) fore = Th.AccentInk;
+        }
+
+        if (fill != Color.Transparent) {
+            using (GraphicsPath p = Ui.Round(r, rad))
+            using (Brush b = new SolidBrush(fill)) g.FillPath(b, p);
+        }
+        if (edge != Color.Empty) {
+            using (GraphicsPath p = Ui.Round(r, rad))
+            using (Pen pen = new Pen(edge, 1.4f)) g.DrawPath(pen, p);
+        }
+        if (Focused) Ui.FocusRing(g, new Rectangle(1, 1, Width - 3, Height - 3), rad, Th.Accent);
+
+        string label = Text;
+        if (Glyph != null && Glyph.Length > 0) label = Glyph + "  " + Text;
+        using (Font f = Ui.F(9.75F, Kind == Primary ? FontStyle.Bold : FontStyle.Regular))
+        using (Brush b = new SolidBrush(Enabled ? fore : Th.Sub)) {
+            StringFormat sf = new StringFormat();
+            sf.Alignment = StringAlignment.Center;
+            sf.LineAlignment = StringAlignment.Center;
+            sf.Trimming = StringTrimming.EllipsisCharacter;
+            sf.FormatFlags |= StringFormatFlags.NoWrap;
+            g.DrawString(label, f, b, new RectangleF(6, 0, Width - 12, Height), sf);
+            sf.Dispose();
+        }
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Sidebar navigation row: glyph + label, purple pill when active.
+// ------------------------------------------------------------------ //
+public class NavItem : Control {
+    public Theme Th = Theme.Light();
+    public string Glyph = "";
+    public bool Active = false;
+    bool hot = false;
+
+    public NavItem() {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
+        TabStop = true;
+        Height = 42;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hot = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hot = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { Focus(); base.OnMouseDown(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+    protected override bool IsInputKey(Keys k) {
+        if (k == Keys.Space || k == Keys.Enter) return true;
+        return base.IsInputKey(k);
+    }
+    protected override void OnKeyUp(KeyEventArgs e) {
+        if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) { OnClick(EventArgs.Empty); e.Handled = true; }
+        base.OnKeyUp(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(Th.Sidebar);
+        Rectangle r = new Rectangle(0, 2, Width - 1, Height - 5);
+        if (Active) {
+            using (GraphicsPath p = Ui.Round(r, 10))
+            using (Brush b = new SolidBrush(Th.AccentSoft)) g.FillPath(b, p);
+            using (Brush b = new SolidBrush(Th.Accent))
+                g.FillRectangle(b, new Rectangle(0, r.Y + 8, 3, r.Height - 16));
+        } else if (hot) {
+            using (GraphicsPath p = Ui.Round(r, 10))
+            using (Brush b = new SolidBrush(Ui.Mix(Th.Sidebar, Th.AccentSoft, 0.55f))) g.FillPath(b, p);
+        }
+        if (Focused) Ui.FocusRing(g, new Rectangle(2, 4, Width - 6, Height - 9), 10, Th.Accent);
+
+        Color fore = Active ? Th.AccentInk : Th.Sub;
+        StringFormat sf = new StringFormat();
+        sf.LineAlignment = StringAlignment.Center;
+        sf.FormatFlags |= StringFormatFlags.NoWrap;
+        sf.Trimming = StringTrimming.EllipsisCharacter;
+        using (Font gf = Ui.F(11F))
+        using (Brush b = new SolidBrush(fore))
+            g.DrawString(Glyph, gf, b, new RectangleF(14, 0, 26, Height), sf);
+        using (Font tf = Ui.F(9.75F, Active ? FontStyle.Bold : FontStyle.Regular))
+        using (Brush b = new SolidBrush(Active ? Th.Text : Th.Sub))
+            g.DrawString(Text, tf, b, new RectangleF(42, 0, Width - 48, Height), sf);
+        sf.Dispose();
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Donut statistic ring (reference design's stat cards)
+// ------------------------------------------------------------------ //
+public class DonutStat : Control {
+    public Theme Th = Theme.Light();
+    public string Caption = "";
+    public string Unit = "";
+    public string Value = "0";
+    public float Fraction = 0f;   // 0..1 sweep
+
+    public DonutStat() {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.ResizeRedraw, true);
+        Height = 62;
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(Th.Card);
+
+        int d = 44;
+        int cx = Width - d - 6;
+        int cy = (Height - d) / 2;
+        Rectangle ring = new Rectangle(cx, cy, d, d);
+
+        using (Pen bg = new Pen(Th.Track, 4f)) g.DrawEllipse(bg, ring);
+        float sweep = Fraction < 0f ? 0f : (Fraction > 1f ? 1f : Fraction);
+        if (sweep > 0f) {
+            using (Pen p = new Pen(Th.Accent, 4f)) {
+                p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                g.DrawArc(p, ring, -90f, 360f * sweep);
+            }
+        }
+        StringFormat mid = new StringFormat();
+        mid.Alignment = StringAlignment.Center;
+        mid.LineAlignment = StringAlignment.Center;
+        using (Font vf = Ui.F(9.5F, FontStyle.Bold))
+        using (Brush b = new SolidBrush(Th.AccentInk))   // text, not a mark
+            g.DrawString(Value, vf, b, new RectangleF(cx, cy, d, d), mid);
+
+        StringFormat left = new StringFormat();
+        left.FormatFlags |= StringFormatFlags.NoWrap;
+        left.Trimming = StringTrimming.EllipsisCharacter;
+        using (Font cf = Ui.F(9F))
+        using (Brush b = new SolidBrush(Th.Text))
+            g.DrawString(Caption, cf, b, new RectangleF(4, Height / 2 - 16, Width - d - 16, 18), left);
+        using (Font uf = Ui.F(8F))
+        using (Brush b = new SolidBrush(Th.Sub))
+            g.DrawString(Unit, uf, b, new RectangleF(4, Height / 2 + 2, Width - d - 16, 16), left);
+        mid.Dispose(); left.Dispose();
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  iOS-style toggle. Exposes Checked / CheckedChanged like a CheckBox.
+// ------------------------------------------------------------------ //
+public class ToggleSwitch : Control {
+    public Theme Th = Theme.Light();
+    bool val = false;
+    public event EventHandler CheckedChanged;
+
+    public bool Checked {
+        get { return val; }
+        set { if (val != value) { val = value; Invalidate(); if (CheckedChanged != null) CheckedChanged(this, EventArgs.Empty); } }
+    }
+
+    public ToggleSwitch() {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
+        TabStop = true;
+        Size = new Size(46, 26);
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) { Focus(); Checked = !Checked; base.OnMouseDown(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override bool IsInputKey(Keys k) {
+        if (k == Keys.Space || k == Keys.Enter) return true;
+        return base.IsInputKey(k);
+    }
+    protected override void OnKeyUp(KeyEventArgs e) {
+        if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) { Checked = !Checked; e.Handled = true; }
+        base.OnKeyUp(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        // a CardPanel paints the page bg outside its rounded rect, so reading
+        // Parent.BackColor here left grey bands across the card surface
+        g.Clear(Parent is CardPanel ? Th.Card : (Parent != null ? Parent.BackColor : Th.Card));
+        Rectangle r = new Rectangle(0, 2, Width - 1, Height - 5);
+        using (GraphicsPath p = Ui.Round(r, r.Height / 2))
+        using (Brush b = new SolidBrush(val ? Th.Accent : Th.Track)) g.FillPath(b, p);
+        if (Focused) Ui.FocusRing(g, r, r.Height / 2, Th.Accent);
+        int kd = r.Height - 6;
+        int kx = val ? r.Right - kd - 3 : r.X + 3;
+        // ON: AccentText, which is dark on the lifted dark-mode teal. OFF: the
+        // card colour with an outline, since a white knob on the light-theme
+        // track was all but invisible.
+        using (Brush b = new SolidBrush(val ? Th.AccentText : Th.Card))
+            g.FillEllipse(b, kx, r.Y + 3, kd, kd);
+        if (!val) {
+            using (Pen pen = new Pen(Th.Border, 1f)) g.DrawEllipse(pen, kx, r.Y + 3, kd, kd);
+        }
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Flat checkbox with the accent tick. Drop-in for CheckBox usage
+//  (Checked / CheckedChanged / Text), so option wiring is unchanged.
+// ------------------------------------------------------------------ //
+public class FlatCheck : Control {
+    public Theme Th = Theme.Light();
+    bool val = false;
+    bool hot = false;
+    public event EventHandler CheckedChanged;
+
+    public bool Checked {
+        get { return val; }
+        set { if (val != value) { val = value; Invalidate(); if (CheckedChanged != null) CheckedChanged(this, EventArgs.Empty); } }
+    }
+
+    public FlatCheck() {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
+        TabStop = true;
+        Height = 24;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hot = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hot = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { Focus(); Checked = !Checked; base.OnMouseDown(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override bool IsInputKey(Keys k) {
+        if (k == Keys.Space || k == Keys.Enter) return true;
+        return base.IsInputKey(k);
+    }
+    protected override void OnKeyUp(KeyEventArgs e) {
+        if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) { Checked = !Checked; e.Handled = true; }
+        base.OnKeyUp(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        // a CardPanel paints the page bg outside its rounded rect, so reading
+        // Parent.BackColor here left grey bands across the card surface
+        g.Clear(Parent is CardPanel ? Th.Card : (Parent != null ? Parent.BackColor : Th.Card));
+        Rectangle box = new Rectangle(1, (Height - 17) / 2, 17, 17);
+        using (GraphicsPath p = Ui.Round(box, 5)) {
+            using (Brush b = new SolidBrush(val ? Th.Accent : Th.InputBg)) g.FillPath(b, p);
+            using (Pen pen = new Pen(val ? Th.Accent : (hot ? Th.Accent : Th.Border), 1.4f)) g.DrawPath(pen, p);
+        }
+        if (val) {
+            // AccentText, not white: on the lifted dark-mode teal a white tick
+            // sits at 2.4:1, while the dark ink reads at 6.9:1
+            using (Pen pen = new Pen(Th.AccentText, 2f)) {
+                pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round;
+                g.DrawLines(pen, new Point[] {
+                    new Point(box.X + 4, box.Y + 9),
+                    new Point(box.X + 7, box.Y + 12),
+                    new Point(box.X + 13, box.Y + 5) });
+            }
+        }
+        if (Focused) Ui.FocusRing(g, box, 5, Th.Accent);
+        StringFormat sf = new StringFormat();
+        sf.LineAlignment = StringAlignment.Center;
+        sf.Trimming = StringTrimming.EllipsisCharacter;
+        sf.FormatFlags |= StringFormatFlags.NoWrap;
+        using (Font f = Ui.F(9.25F))
+        using (Brush b = new SolidBrush(Th.Text))
+            g.DrawString(Text, f, b, new RectangleF(26, 0, Width - 28, Height), sf);
+        sf.Dispose();
     }
 }
 
@@ -1561,7 +2060,7 @@ public class PromptDialog : Form {
         Button ok = new Button();
         ok.Text = "OK"; ok.DialogResult = DialogResult.OK;
         ok.Location = new Point(132, 52); ok.Size = new Size(72, 28);
-        ok.BackColor = th.Accent; ok.ForeColor = th.AccentText;
+        ok.BackColor = th.AccentFill; ok.ForeColor = th.AccentText;
         ok.FlatStyle = FlatStyle.Flat; ok.FlatAppearance.BorderSize = 0;
         Controls.Add(ok);
         Button cancel = new Button();
@@ -1599,7 +2098,7 @@ public class AboutDialog : Form {
         Button ok = new Button();
         ok.Text = "OK"; ok.DialogResult = DialogResult.OK;
         ok.Location = new Point(170, 184); ok.Size = new Size(80, 28);
-        ok.BackColor = th.Accent; ok.ForeColor = th.AccentText;
+        ok.BackColor = th.AccentFill; ok.ForeColor = th.AccentText;
         ok.FlatStyle = FlatStyle.Flat; ok.FlatAppearance.BorderSize = 0;
         Controls.Add(ok);
         AcceptButton = ok;
@@ -1759,7 +2258,8 @@ public class RtlFile {
     public void Recompute(FixOptions o) {
         // never insert line breaks inside file text nodes: SVG <text>
         // positioning is absolute, a break there corrupts the layout
-        FixOptions of = FixOptions.FromBits(o.ToBits()); // copies all flags, WrapWidth stays 0
+        FixOptions of = FixOptions.FromBits(o.ToBits()); // copies all flags
+        of.WrapWidth = 0;                                // never wrap inside file text nodes
         o = of;
         foreach (TextFixItem it in Items) {
             if (Engine.LooksConverted(it.Original)) {
@@ -1809,7 +2309,7 @@ public class RtlFile {
 
     public string BuildReport(FixOptions o) {
         StringBuilder sb = new StringBuilder();
-        sb.AppendLine("NassakhRTL 2.0.2 - Fix Report");
+        sb.AppendLine("NassakhRTL 2.1 - Fix Report");
         sb.AppendLine("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         sb.AppendLine("File: " + SourcePath);
         sb.AppendLine("Options: " + o.ToBits());
@@ -1947,427 +2447,852 @@ public class MainForm : Form {
     Theme th;
     bool dark = false;
     bool loadingUi = false;
-    bool reallyExit = false;
     bool trayTipShown = false;
     bool hkClip = false, hkFix = false, hkRestore = false;
+    bool watchGuard = false;
 
-    Panel header;
+    // ---- shell ----
+    Panel header, sidebar, statsPane, content, statusBar;
     PictureBox logo;
-    Button bTheme, bAbout;
-    TabControl tabs;
-    TabPage tabQuick, tabFiles, tabWatch;
+    Label lblVersionPill, lblSideVer, lblStatusLeft, lblStatusRight;
+    PillButton bImport, bExport, bTheme, bAbout;
+    NavItem navQuick, navFiles, navWatch, navHistory, navSettings;
+    string curPage = "quick";
+    ToolTip tips;
+    ContextMenuStrip exportMenu;
     NotifyIcon tray;
     ToolStripMenuItem trayWatchItem;
 
-    // quick fix tab
+    // ---- pages ----
+    Panel pgQuick, pgFiles, pgWatch, pgHistory, pgSettings;
+
+    // ---- stats panel ----
+    CardPanel cardStats, cardLive, cardTips;
+    DonutStat dChars, dFiles, dItems;
+    ToggleSwitch swLive;
+    Label lblLiveCap, lblLiveSub, lblTipsTitle, lblTipsBody, lblStatsTitle;
+    long statChars = 0;
+    int statFiles = 0;
+    int statItems = 0;
+    DateTime sessionStart = DateTime.Now;
+
+    // ---- quick fix page ----
+    CardPanel cardInput, cardPreview;
     TextBox input;
-    Label lblInput, lblPreview, inspector, status;
+    Label lblQuickTitle, lblQuickSub, lblInput, lblPreview, inspector, status;
     PreviewPanel preview;
-    GroupBox optBox;
-    CheckBox cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap;
+    FlatCheck cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap;
     NumericUpDown numWrap;
     Label lblWrapCap;
     ComboBox cmbPreset, cmbHistory;
-    Button bSavePreset, bDelPreset, bConvert, bClip, bRestore, bClear, bImport, bExport;
-    ContextMenuStrip exportMenu;
+    PillButton bSavePreset, bDelPreset, bConvert, bClip, bRestore, bClear;
     System.Windows.Forms.Timer debounce;
     List<string[]> history = new List<string[]>();
     Dictionary<string, string> presets = new Dictionary<string, string>();
     string lastConverted = "";
-
     Label lblPresetCap, lblHistCap;
 
-    // files tab
-    Button bOpenFile, bSaveAs, bOverwrite, bReport, bCheckAll, bCheckNone, bCopyText;
-    Label lblFile, lblFileNote, lblOrig, lblFixed, fileStatus;
+    // ---- files page ----
+    CardPanel cardDrop, cardList, cardDiff;
+    PillButton bOpenFile, bSaveAs, bOverwrite, bReport, bCheckAll, bCheckNone, bCopyText;
+    Label lblFilesTitle, lblFile, lblFileNote, lblOrig, lblFixed, fileStatus, lblDropHint;
     ListView list;
     TextBox origBox;
     PreviewPanel fixedPrev;
     RtlFile curFile = null;
     bool listGuard = false;
 
-    // watcher tab
+    // ---- watcher page ----
+    CardPanel cardWatchTop, cardLog;
     TextBox watchDir;
-    Button bBrowse, bWatchToggle;
-    CheckBox cBak;
-    Label watchStatus, lblWatchCap, lblLogCap, lblWatchNote;
+    PillButton bBrowse;
+    ToggleSwitch swWatch;
+    FlatCheck cBak;
+    Label lblWatchTitle, watchStatus, lblWatchCap, lblLogCap, lblWatchNote, lblWatchToggleCap;
     ListBox watchLog;
     WatcherCore watcher = new WatcherCore();
     System.Windows.Forms.Timer watchTimer;
+
+    // ---- history page ----
+    CardPanel cardHistList, cardHistPrev;
+    Label lblHistTitle, lblHistNote, lblHistOrig, lblHistFixed;
+    ListBox histList;
+    TextBox histOrig;
+    PreviewPanel histFixed;
+    PillButton bHistUse, bHistCopy, bHistClear;
+
+    // ---- settings page ----
+    CardPanel cardOpts, cardSpell, cardPrefs;
+    Label lblSetTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblThemeCap, lblSetNote;
+    ToggleSwitch swDark;
 
     string SettingsDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NassakhRTL"); } }
     string SettingsFile { get { return Path.Combine(SettingsDir, "settings.ini"); } }
 
     public MainForm() {
         th = Theme.Light();
-        Text = "NassakhRTL 2.0.2";
+        Text = "NassakhRTL 2.1";
         Icon = AssetLoader.AppIcon();
-        Font = new Font("Segoe UI", 9F);
-        ClientSize = new Size(640, 760);
-        MinimumSize = new Size(620, 700);
+        Font = Ui.F(9F);
+        ClientSize = new Size(1120, 736);
+        MinimumSize = new Size(1000, 680);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Font;
         KeyPreview = true;
         AllowDrop = true;
         TopMost = true;
+        DoubleBuffered = true;
 
-        BuildHeader();
-        BuildTabs();
-        BuildQuickTab();
-        BuildFilesTab();
-        BuildWatchTab();
+        tips = new ToolTip();
+        tips.InitialDelay = 350;
+
+        BuildShell();
+        BuildQuickPage();
+        BuildFilesPage();
+        BuildWatchPage();
+        BuildHistoryPage();
+        BuildSettingsPage();
+        BuildStatsPane();
         BuildTray();
         LoadSettings();
         ApplyTheme();
         HookEvents();
+        ShowPage("quick");
+        // LoadSettings runs before the handler is wired, so mirror the restored
+        // value onto the form or "Stay on top" would disagree with the window
+        TopMost = cTop.Checked;
         loadingUi = false;
     }
 
-    // ---------------- construction ----------------
-    void BuildHeader() {
+    // ---------------- shell ----------------
+    void BuildShell() {
+        statusBar = new Panel();
+        statusBar.Dock = DockStyle.Bottom;
+        statusBar.Height = 30;
+        Controls.Add(statusBar);
+
+        lblStatusLeft = new Label();
+        lblStatusLeft.AutoSize = false;
+        lblStatusLeft.Location = new Point(18, 7);
+        lblStatusLeft.Size = new Size(640, 18);
+        lblStatusLeft.Font = Ui.F(8.25F);
+        statusBar.Controls.Add(lblStatusLeft);
+
+        lblStatusRight = new Label();
+        lblStatusRight.AutoSize = false;
+        lblStatusRight.TextAlign = ContentAlignment.MiddleRight;
+        lblStatusRight.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        lblStatusRight.Size = new Size(420, 18);
+        lblStatusRight.Location = new Point(ClientSize.Width - 438, 7);
+        lblStatusRight.Font = Ui.F(8.25F);
+        statusBar.Controls.Add(lblStatusRight);
+
         header = new Panel();
         header.Dock = DockStyle.Top;
-        header.Height = 58;
+        header.Height = 62;
         Controls.Add(header);
 
         logo = new PictureBox();
         logo.Image = AssetLoader.HeaderLogo();
         logo.SizeMode = PictureBoxSizeMode.Zoom;
-        logo.Location = new Point(14, 11);
-        logo.Size = new Size(233, 36);
+        logo.Location = new Point(20, 14);
+        logo.Size = new Size(212, 33);
         header.Controls.Add(logo);
 
-        bAbout = HBtn("?", ClientSize.Width - 46, 32);
-        bTheme = HBtn("\u263D", ClientSize.Width - 84, 32);
-        bExport = HBtn("\uD83D\uDCBE Export", ClientSize.Width - 176, 84);
-        bImport = HBtn("\uD83D\uDCC2 Import", ClientSize.Width - 268, 84);
-        header.Controls.Add(bAbout); header.Controls.Add(bTheme);
-        header.Controls.Add(bExport); header.Controls.Add(bImport);
+        lblVersionPill = new Label();
+        lblVersionPill.Text = "v2.1";
+        lblVersionPill.AutoSize = false;
+        lblVersionPill.Size = new Size(44, 20);
+        lblVersionPill.Location = new Point(242, 21);
+        lblVersionPill.TextAlign = ContentAlignment.MiddleCenter;
+        lblVersionPill.Font = Ui.F(8F, FontStyle.Bold);
+        header.Controls.Add(lblVersionPill);
+
+        bAbout = HBtn("?", PillButton.Ghost, 38);
+        bTheme = HBtn("\u263D", PillButton.Ghost, 38);
+        bExport = HBtn("Export", PillButton.Primary, 104);
+        bImport = HBtn("Import", PillButton.Secondary, 100);
+        tips.SetToolTip(bAbout, "About NassakhRTL");
+        tips.SetToolTip(bTheme, "Switch light / dark theme");
+        tips.SetToolTip(bImport, "Import a .txt or .svg file");
+        tips.SetToolTip(bExport, "Export the converted text");
 
         exportMenu = new ContextMenuStrip();
         exportMenu.Items.Add("Copy converted text");
         exportMenu.Items.Add("Save as .txt");
         exportMenu.Items.Add("Save as .json (original + converted)");
+
+        sidebar = new Panel();
+        sidebar.Dock = DockStyle.Left;
+        sidebar.Width = 208;
+        Controls.Add(sidebar);
+
+        navQuick = Nav("\u26A1", "Quick Fix", 18);
+        // BMP glyphs only: the astral emoji fall back to an identical .notdef
+        // box in Segoe UI, so Files and Watcher looked like the same icon
+        navFiles = Nav("\u2630", "Files (SVG / TXT)", 64);
+        navWatch = Nav("\u25C9", "Folder Watcher", 110);
+        navHistory = Nav("\u21BA", "History", 156);
+        navSettings = Nav("\u2699", "Settings", 202);
+
+        lblSideVer = new Label();
+        lblSideVer.AutoSize = false;
+        lblSideVer.Size = new Size(190, 34);
+        lblSideVer.Font = Ui.F(8F);
+        lblSideVer.TextAlign = ContentAlignment.MiddleLeft;
+        sidebar.Controls.Add(lblSideVer);
+
+        content = new Panel();
+        content.Dock = DockStyle.Fill;
+        Controls.Add(content);
+
+        statsPane = new Panel();
+        statsPane.Dock = DockStyle.Right;
+        statsPane.Width = 258;
+        Controls.Add(statsPane);
+
+        // z-order: Fill must be added before Right/Left docks to sit between them
+        Controls.SetChildIndex(content, 0);
+        Controls.SetChildIndex(statsPane, 1);
+        Controls.SetChildIndex(sidebar, 2);
+        Controls.SetChildIndex(header, 3);
+        Controls.SetChildIndex(statusBar, 4);
+
+        Resize += delegate(object s, EventArgs e) { LayoutShell(); };
     }
 
-    Button HBtn(string text, int x, int w) {
-        Button b = new Button();
-        b.Text = text; b.Location = new Point(x, 14); b.Size = new Size(w, 30);
+    PillButton HBtn(string text, int kind, int w) {
+        PillButton b = new PillButton();
+        b.Text = text; b.Kind = kind;
+        b.Size = new Size(w, 34);
         b.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        b.FlatStyle = FlatStyle.Flat;
+        header.Controls.Add(b);
         return b;
     }
 
-    void BuildTabs() {
-        tabs = new TabControl();
-        tabs.Location = new Point(0, 58);
-        tabs.Size = new Size(ClientSize.Width, ClientSize.Height - 58);
-        tabs.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-        tabQuick = new TabPage("  Quick Fix  ");
-        tabFiles = new TabPage("  Files (SVG / TXT)  ");
-        tabWatch = new TabPage("  Folder Watcher  ");
-        tabs.TabPages.Add(tabQuick);
-        tabs.TabPages.Add(tabFiles);
-        tabs.TabPages.Add(tabWatch);
-        Controls.Add(tabs);
-        // explicit layout, recomputed from real page size on every resize:
-        // anchors against estimated sizes broke on Windows (pages start tiny)
-        tabQuick.Resize += delegate(object s2, EventArgs e2) { LayoutQuick(); };
-        tabFiles.Resize += delegate(object s2, EventArgs e2) { LayoutFiles(); };
-        tabWatch.Resize += delegate(object s2, EventArgs e2) { LayoutWatch(); };
+    NavItem Nav(string glyph, string label, int y) {
+        NavItem n = new NavItem();
+        n.Glyph = glyph; n.Text = label;
+        n.Location = new Point(12, y);
+        n.Size = new Size(184, 42);
+        sidebar.Controls.Add(n);
+        return n;
     }
 
-    protected override void OnShown(EventArgs e) {
-        base.OnShown(e);
-        LayoutQuick(); LayoutFiles(); LayoutWatch();
+    void LayoutShell() {
+        int W = ClientSize.Width;
+        bAbout.Location = new Point(W - 58, 14);
+        bTheme.Location = new Point(W - 100, 14);
+        bExport.Location = new Point(W - 212, 14);
+        bImport.Location = new Point(W - 320, 14);
+        lblSideVer.Location = new Point(18, sidebar.ClientSize.Height - 44);
+        lblStatusRight.Location = new Point(statusBar.ClientSize.Width - 438, 7);
+        lblStatusLeft.Size = new Size(Math.Max(120, statusBar.ClientSize.Width - 470), 18);
     }
 
-    // ---------------- Quick Fix tab (v1 controls, manual layout) ----------------
-    void BuildQuickTab() {
-        lblInput = QLabel("INPUT \u2014 paste, type, or drop a .txt file", new Font("Consolas", 8.5F));
+    void ShowPage(string name) {
+        curPage = name;
+        pgQuick.Visible = name == "quick";
+        pgFiles.Visible = name == "files";
+        pgWatch.Visible = name == "watch";
+        pgHistory.Visible = name == "history";
+        pgSettings.Visible = name == "settings";
+        navQuick.Active = name == "quick";
+        navFiles.Active = name == "files";
+        navWatch.Active = name == "watch";
+        navHistory.Active = name == "history";
+        navSettings.Active = name == "settings";
+        navQuick.Invalidate(); navFiles.Invalidate(); navWatch.Invalidate();
+        navHistory.Invalidate(); navSettings.Invalidate();
+        if (name == "history") RefreshHistoryList();
+        UpdateStatusBar();
+    }
+
+    Panel NewPage() {
+        Panel p = new Panel();
+        p.Dock = DockStyle.Fill;
+        p.Visible = false;
+        content.Controls.Add(p);
+        return p;
+    }
+
+    Label Cap(Control parent, string text, float size, FontStyle st) {
+        Label l = new Label();
+        l.Text = text;
+        l.AutoSize = true;
+        l.Font = Ui.F(size, st);
+        parent.Controls.Add(l);
+        return l;
+    }
+
+    // ---------------- Quick Fix page ----------------
+    void BuildQuickPage() {
+        pgQuick = NewPage();
+
+        lblQuickTitle = Cap(pgQuick, "Quick Fix", 15F, FontStyle.Bold);
+        lblQuickSub = Cap(pgQuick, "Paste RTL text, convert it, and paste the result straight into Affinity.", 9F, FontStyle.Regular);
+
+        cardInput = new CardPanel();
+        pgQuick.Controls.Add(cardInput);
+        lblInput = Cap(cardInput, "INPUT", 8F, FontStyle.Bold);
         input = new TextBox();
         input.Multiline = true;
         input.ScrollBars = ScrollBars.Vertical;
         input.RightToLeft = RightToLeft.Yes;
         input.Font = new Font("Arial", 13F);
-        input.BorderStyle = BorderStyle.FixedSingle;
+        input.BorderStyle = BorderStyle.None;
         input.AllowDrop = true;
-        tabQuick.Controls.Add(input);
+        cardInput.Controls.Add(input);
 
-        lblPreview = QLabel("AFFINITY PREVIEW \u2014 click a letter to inspect it", new Font("Consolas", 8.5F));
+        cardPreview = new CardPanel();
+        pgQuick.Controls.Add(cardPreview);
+        lblPreview = Cap(cardPreview, "AFFINITY PREVIEW \u2014 click a letter to inspect it", 8F, FontStyle.Bold);
         preview = new PreviewPanel();
-        preview.BorderStyle = BorderStyle.FixedSingle;
-        tabQuick.Controls.Add(preview);
-
-        inspector = QLabel("", new Font("Consolas", 8.5F));
+        preview.BorderStyle = BorderStyle.None;
+        cardPreview.Controls.Add(preview);
+        inspector = Cap(cardPreview, "", 8.25F, FontStyle.Regular);
         inspector.AutoSize = false;
 
-        optBox = new GroupBox();
-        optBox.Text = "Options";
-        tabQuick.Controls.Add(optBox);
-
-        cDigits = Opt("Arabic digits \u2192 0-9", true);
-        cHidden = Opt("Remove hidden characters", true);
-        cDia = Opt("Remove diacritics (harakat/niqqud)", false);
-        cTat = Opt("Remove tatweel \u0640", false);
-        cPunct = Opt("\u060C \u061B \u061F \u2192 Latin , ; ?", false);
-        cAlef = Opt("Unify alef \u0623\u0625\u0622 \u2192 \u0627 (changes spelling)", false);
-        cYaTa = Opt("\u0649\u2192\u064A and \u0629\u2192\u0647 (changes spelling)", false);
-        cTop = Opt("Stay on top", true);
-        cWrap = Opt("Break long paragraphs into lines of", true);
+        cDigits = Chk(pgQuick, "Arabic digits \u2192 0-9", true);
+        cDigits.Width = 166;
+        cTop = Chk(pgQuick, "Stay on top", true);
+        cTop.Width = 116;
+        cWrap = Chk(pgQuick, "Break long paragraphs every", true);
+        cWrap.Width = 206;
         numWrap = new NumericUpDown();
         numWrap.Minimum = 20; numWrap.Maximum = 200; numWrap.Value = 70;
-        numWrap.Width = 52;
-        optBox.Controls.Add(numWrap);
-        lblWrapCap = new Label();
-        lblWrapCap.Text = "chars \u2014 required for wrapping text frames";
-        lblWrapCap.AutoSize = true;
-        optBox.Controls.Add(lblWrapCap);
+        numWrap.Width = 56;
+        numWrap.BorderStyle = BorderStyle.FixedSingle;
+        pgQuick.Controls.Add(numWrap);
+        lblWrapCap = Cap(pgQuick, "chars per line", 8.5F, FontStyle.Regular);
+        string wrapWhy = "Hard-breaks long paragraphs before conversion so reading order survives. "
+            + "Must be narrower than your Affinity text frame, or the frame re-wraps and flips line order.";
+        tips.SetToolTip(numWrap, wrapWhy);
+        tips.SetToolTip(cWrap, wrapWhy);
+        tips.SetToolTip(lblWrapCap, wrapWhy);
+        tips.SetToolTip(cDigits, "Convert \u0660\u0661\u0662 and \u06f0\u06f1\u06f2 to 0 1 2");
+        tips.SetToolTip(cTop, "Keep the NassakhRTL window above other windows");
 
-        lblPresetCap = QLabel("Preset", null);
-        cmbPreset = new ComboBox();
-        cmbPreset.DropDownStyle = ComboBoxStyle.DropDownList;
-        tabQuick.Controls.Add(cmbPreset);
-        bSavePreset = QBtn("+");
-        bDelPreset = QBtn("\u2212");
+        bConvert = QBtn(pgQuick, "Convert + Copy", PillButton.Primary, 168);
+        bConvert.Glyph = "\u26A1";
+        bClip = QBtn(pgQuick, "Fix Clipboard", PillButton.Secondary, 146);
+        bRestore = QBtn(pgQuick, "Restore Clipboard", PillButton.Ghost, 150);
+        bClear = QBtn(pgQuick, "Clear", PillButton.Ghost, 84);
+        tips.SetToolTip(bConvert, "Convert the box above and copy it (Ctrl+Enter)");
+        tips.SetToolTip(bClip, "Convert whatever is on the clipboard (Ctrl+Alt+R)");
+        tips.SetToolTip(bRestore, "Turn converted text back into editable text");
 
-        lblHistCap = QLabel("History", null);
-        cmbHistory = new ComboBox();
-        cmbHistory.DropDownStyle = ComboBoxStyle.DropDownList;
-        tabQuick.Controls.Add(cmbHistory);
-
-        bConvert = QBtn("\u26A1 Convert + Copy");
-        bConvert.FlatAppearance.BorderSize = 0;
-        bClip = QBtn("\uD83D\uDCCB Fix clipboard");
-        bRestore = QBtn("\u21A9 Restore");
-        bClear = QBtn("\u2715 Clear");
-
-        status = QLabel("", null);
+        status = Cap(pgQuick, "", 9F, FontStyle.Bold);
         status.AutoSize = false;
+        status.AutoEllipsis = true;
 
         debounce = new System.Windows.Forms.Timer();
         debounce.Interval = 160;
     }
 
-    // single source of truth for Quick Fix geometry; runs on every resize
-    void LayoutQuick() {
-        int W = tabQuick.ClientSize.Width, H = tabQuick.ClientSize.Height;
-        if (W < 100 || H < 100) return;
-        lblInput.Location = new Point(16, 8);
-        input.Location = new Point(14, 26);
-        input.Size = new Size(W - 28, Math.Max(80, H - 26 - 404));
-        lblPreview.Location = new Point(16, H - 396);
-        preview.Location = new Point(14, H - 376);
-        preview.Size = new Size(W - 28, 96);
-        inspector.Location = new Point(16, H - 276);
-        inspector.Size = new Size(W - 32, 18);
-        optBox.Location = new Point(14, H - 254);
-        optBox.Size = new Size(W - 28, 142);
-        int colB = (W - 28) / 2;
-        cDigits.Location = new Point(12, 20);
-        cHidden.Location = new Point(12, 42);
-        cDia.Location = new Point(12, 64);
-        cTat.Location = new Point(12, 86);
-        cPunct.Location = new Point(colB, 20);
-        cAlef.Location = new Point(colB, 42);
-        cYaTa.Location = new Point(colB, 64);
-        cTop.Location = new Point(colB, 86);
-        cWrap.Location = new Point(12, 110);
-        numWrap.Location = new Point(cWrap.Right + 2, 108);
-        lblWrapCap.Location = new Point(numWrap.Right + 6, 111);
-        lblPresetCap.Location = new Point(16, H - 102);
-        cmbPreset.Location = new Point(62, H - 106);
-        cmbPreset.Size = new Size(120, 24);
-        bSavePreset.SetBounds(186, H - 106, 26, 24);
-        bDelPreset.SetBounds(214, H - 106, 26, 24);
-        lblHistCap.Location = new Point(252, H - 102);
-        cmbHistory.Location = new Point(300, H - 106);
-        cmbHistory.Size = new Size(Math.Max(60, W - 300 - 14), 24);
-        bConvert.SetBounds(14, H - 74, 150, 32);
-        bClip.SetBounds(172, H - 74, 124, 32);
-        bRestore.SetBounds(304, H - 74, 92, 32);
-        bClear.SetBounds(404, H - 74, 80, 32);
-        status.Location = new Point(16, H - 34);
-        status.Size = new Size(W - 32, 24);
-    }
-
-    Label QLabel(string text, Font f) {
-        Label l = new Label();
-        l.Text = text; l.AutoSize = true;
-        if (f != null) l.Font = f;
-        tabQuick.Controls.Add(l);
-        return l;
-    }
-
-    Button QBtn(string text) {
-        Button b = new Button();
-        b.Text = text;
-        b.FlatStyle = FlatStyle.Flat;
-        tabQuick.Controls.Add(b);
-        return b;
-    }
-
-    CheckBox Opt(string text, bool isChecked) {
-        CheckBox c = new CheckBox();
-        c.Text = text; c.Checked = isChecked; c.AutoSize = true;
-        optBox.Controls.Add(c);
+    FlatCheck Chk(Control parent, string text, bool isChecked) {
+        FlatCheck c = new FlatCheck();
+        c.Text = text;
+        c.Checked = isChecked;
+        c.Height = 24;
+        parent.Controls.Add(c);
         return c;
     }
 
-    // ---------------- Files tab ----------------
-    void BuildFilesTab() {
-        bOpenFile = FBtn("\uD83D\uDCC2 Open SVG / TXT\u2026");
-        lblFile = FLabel("No file open. You can also drop a file here.");
+    PillButton QBtn(Control parent, string text, int kind, int w) {
+        PillButton b = new PillButton();
+        b.Text = text; b.Kind = kind;
+        b.Size = new Size(w, 38);
+        parent.Controls.Add(b);
+        return b;
+    }
 
+    // Places controls left to right and wraps to a new row when the next one
+    // would overflow. The content column is only ~530px at the minimum window
+    // size, so fixed x offsets ran controls off the edge. Returns rows used.
+    static int FlowRow(Control[] items, int x0, int y0, int avail, int gap, int rowH) {
+        int x = x0, y = y0, rows = 1;
+        for (int i = 0; i < items.Length; i++) {
+            Control c = items[i];
+            if (c == null) continue;
+            if (x > x0 && x - x0 + c.Width > avail) { x = x0; y += rowH + 8; rows++; }
+            c.Location = new Point(x, y + (rowH - c.Height) / 2);
+            x += c.Width + gap;
+        }
+        return rows;
+    }
+
+    static int FlowRows(int[] widths, int avail, int gap) {
+        int x = 0, rows = 1;
+        for (int i = 0; i < widths.Length; i++) {
+            if (x > 0 && x + widths[i] > avail) { x = 0; rows++; }
+            x += widths[i] + gap;
+        }
+        return rows;
+    }
+
+    void LayoutQuick() {
+        int W = pgQuick.ClientSize.Width, H = pgQuick.ClientSize.Height;
+        if (W < 120 || H < 120) return;
+        int pad = 22;
+        lblQuickTitle.Location = new Point(pad, 18);
+        lblQuickSub.Location = new Point(pad, 46);
+
+        int avail = W - pad * 2;
+        // wrap option always gets its own row: label + spinner + caption is wide
+        int optRow1 = FlowRows(new int[] { cDigits.Width, cTop.Width }, avail, 12);
+        int optRow2 = FlowRows(new int[] { cWrap.Width, numWrap.Width, lblWrapCap.Width }, avail, 8);
+        int optH = (optRow1 + optRow2) * 24 + (optRow1 + optRow2 - 1) * 8;
+        int btnRows = FlowRows(new int[] { bConvert.Width, bClip.Width, bRestore.Width, bClear.Width }, avail, 12);
+        int btnH = btnRows * 38 + (btnRows - 1) * 8;
+
+        int statusY = H - 34;
+        int btnY = statusY - 10 - btnH;
+        int optsY = btnY - 14 - optH;
+
+        int topY = 74;
+        int inputH = Math.Max(110, (optsY - topY - 14) * 55 / 100);
+        cardInput.SetBounds(pad - 6, topY, W - (pad - 6) * 2, inputH);
+        lblInput.Location = new Point(18, 16);
+        input.SetBounds(18, 40, cardInput.Width - 42, Math.Max(30, inputH - 58));
+
+        int prevY = topY + inputH + 8;
+        int prevH = optsY - prevY - 12;
+        cardPreview.SetBounds(pad - 6, prevY, W - (pad - 6) * 2, Math.Max(84, prevH));
+        lblPreview.Location = new Point(18, 16);
+        preview.SetBounds(18, 38, cardPreview.Width - 42, Math.Max(34, cardPreview.Height - 78));
+        inspector.SetBounds(18, cardPreview.Height - 34, cardPreview.Width - 42, 20);
+
+        int r1 = FlowRow(new Control[] { cDigits, cTop }, pad, optsY, avail, 12, 24);
+        int y2 = optsY + r1 * 24 + r1 * 8;
+        FlowRow(new Control[] { cWrap, numWrap, lblWrapCap }, pad, y2, avail, 8, 24);
+
+        FlowRow(new Control[] { bConvert, bClip, bRestore, bClear }, pad, btnY, avail, 12, 38);
+        status.SetBounds(pad, statusY, avail, 22);
+    }
+
+    // ---------------- Files page ----------------
+    void BuildFilesPage() {
+        pgFiles = NewPage();
+        lblFilesTitle = Cap(pgFiles, "Files (SVG / TXT)", 15F, FontStyle.Bold);
+
+        cardDrop = new CardPanel();
+        cardDrop.Radius = 12;
+        pgFiles.Controls.Add(cardDrop);
+        lblDropHint = Cap(cardDrop, "Drop an .svg or .txt file here.", 9F, FontStyle.Regular);
+        lblDropHint.AutoSize = false;
+        lblDropHint.AutoEllipsis = true;
+        bOpenFile = QBtn(cardDrop, "Open SVG / TXT", PillButton.Secondary, 158);
+        tips.SetToolTip(bOpenFile, "Only the text inside the file is fixed \u2014 markup is never touched");
+        lblFile = Cap(cardDrop, "No file open.", 8.75F, FontStyle.Regular);
+        lblFile.AutoSize = false;
+        lblFile.AutoEllipsis = true;
+
+        cardList = new CardPanel();
+        pgFiles.Controls.Add(cardList);
         list = new ListView();
         list.View = View.Details;
         list.FullRowSelect = true;
         list.CheckBoxes = true;
         list.HideSelection = false;
-        list.Columns.Add("Item", 140);
-        list.Columns.Add("Changes", 70);
+        list.BorderStyle = BorderStyle.None;
+        list.Columns.Add("Item", 150);
+        list.Columns.Add("Changes", 74);
         list.Columns.Add("Original (preview)", 320);
-        tabFiles.Controls.Add(list);
+        cardList.Controls.Add(list);
+        bCheckAll = QBtn(cardList, "Check all", PillButton.Ghost, 96);
+        bCheckNone = QBtn(cardList, "Uncheck all", PillButton.Ghost, 106);
+        bCopyText = QBtn(cardList, "Copy fixed text", PillButton.Secondary, 146);
+        fileStatus = Cap(cardList, "", 8.5F, FontStyle.Regular);
+        fileStatus.AutoSize = false;
 
-        bCheckAll = FBtn("Check all");
-        bCheckNone = FBtn("Uncheck all");
-        bCopyText = FBtn("\uD83D\uDCCB Copy fixed text");
-        fileStatus = FLabel("");
-
-        lblOrig = FLabel("ORIGINAL (editable Windows rendering)");
-        lblOrig.Font = new Font("Consolas", 8.5F);
+        cardDiff = new CardPanel();
+        pgFiles.Controls.Add(cardDiff);
+        lblOrig = Cap(cardDiff, "ORIGINAL \u2014 editable Windows rendering", 8F, FontStyle.Bold);
         origBox = new TextBox();
         origBox.Multiline = true; origBox.ReadOnly = true;
         origBox.RightToLeft = RightToLeft.Yes;
         origBox.Font = new Font("Arial", 12F);
-        origBox.BorderStyle = BorderStyle.FixedSingle;
-        tabFiles.Controls.Add(origBox);
-
-        lblFixed = FLabel("FIXED \u2014 Affinity preview");
-        lblFixed.Font = new Font("Consolas", 8.5F);
+        origBox.BorderStyle = BorderStyle.None;
+        cardDiff.Controls.Add(origBox);
+        lblFixed = Cap(cardDiff, "FIXED \u2014 Affinity preview", 8F, FontStyle.Bold);
         fixedPrev = new PreviewPanel();
-        fixedPrev.BorderStyle = BorderStyle.FixedSingle;
-        tabFiles.Controls.Add(fixedPrev);
+        fixedPrev.BorderStyle = BorderStyle.None;
+        cardDiff.Controls.Add(fixedPrev);
 
-        bSaveAs = FBtn("\uD83D\uDCBE Apply \u2192 Save As\u2026");
-        bSaveAs.FlatAppearance.BorderSize = 0;
-        bOverwrite = FBtn("Apply \u2192 Overwrite (.bak kept)");
-        bReport = FBtn("Export fix report\u2026");
-
-        lblFileNote = FLabel("Save As = new file, source untouched. Overwrite = keeps .bak. " +
-            "Copy fixed text = selected item's text only, never markup. Export SVG from Affinity with \"Text as text\".");
+        bSaveAs = QBtn(pgFiles, "Apply \u2192 Save As", PillButton.Primary, 160);
+        bOverwrite = QBtn(pgFiles, "Overwrite (.bak kept)", PillButton.Secondary, 178);
+        bReport = QBtn(pgFiles, "Export report", PillButton.Ghost, 132);
+        lblFileNote = Cap(pgFiles, "Save As writes a new file and leaves the source untouched. Export SVG from Affinity with \"Text as text\".", 8.25F, FontStyle.Regular);
         lblFileNote.AutoSize = false;
+        lblFileNote.AutoEllipsis = true;
     }
 
     void LayoutFiles() {
-        int W = tabFiles.ClientSize.Width, H = tabFiles.ClientSize.Height;
-        if (W < 100 || H < 100) return;
-        bOpenFile.SetBounds(14, 10, 150, 30);
-        lblFile.Location = new Point(176, 17);
-        list.Location = new Point(14, 48);
-        list.Size = new Size(W - 28, Math.Max(60, H - 48 - 286));
-        if (list.Columns.Count == 3) list.Columns[2].Width = Math.Max(120, W - 28 - 230);
-        bCheckAll.SetBounds(14, H - 276, 80, 24);
-        bCheckNone.SetBounds(100, H - 276, 90, 24);
-        bCopyText.SetBounds(196, H - 276, 140, 24);
-        fileStatus.Location = new Point(344, H - 272);
-        lblOrig.Location = new Point(16, H - 246);
-        origBox.SetBounds(14, H - 228, W - 28, 62);
-        lblFixed.Location = new Point(16, H - 160);
-        fixedPrev.SetBounds(14, H - 142, W - 28, 62);
-        bSaveAs.SetBounds(14, H - 70, 160, 32);
-        bOverwrite.SetBounds(182, H - 70, 190, 32);
-        bReport.SetBounds(380, H - 70, 140, 32);
-        lblFileNote.Location = new Point(16, H - 32);
-        lblFileNote.Size = new Size(W - 32, 28);
+        int W = pgFiles.ClientSize.Width, H = pgFiles.ClientSize.Height;
+        if (W < 120 || H < 120) return;
+        int pad = 22;
+        lblFilesTitle.Location = new Point(pad, 18);
+
+        int avail = W - pad * 2;
+        cardDrop.SetBounds(pad - 6, 52, W - (pad - 6) * 2, 72);
+        bOpenFile.Location = new Point(18, 17);
+        int hintX = 18 + bOpenFile.Width + 16;
+        lblDropHint.SetBounds(hintX, 16, Math.Max(60, cardDrop.Width - hintX - 22), 18);
+        lblFile.SetBounds(hintX, 38, Math.Max(60, cardDrop.Width - hintX - 22), 18);
+
+        int btnRows = FlowRows(new int[] { bSaveAs.Width, bOverwrite.Width, bReport.Width }, avail, 12);
+        int btnH = btnRows * 38 + (btnRows - 1) * 8;
+        int noteY = H - 26;
+        int bY = noteY - 8 - btnH;
+
+        int listY = 132;
+        int listH = Math.Max(110, (bY - listY - 8) * 52 / 100);
+        cardList.SetBounds(pad - 6, listY, W - (pad - 6) * 2, listH);
+        int inner = cardList.Width - 38;
+        list.SetBounds(16, 16, inner, Math.Max(50, listH - 76));
+        if (list.Columns.Count == 3) list.Columns[2].Width = Math.Max(120, inner - 240);
+        int rowY = listH - 50;
+        FlowRow(new Control[] { bCheckAll, bCheckNone, bCopyText }, 16, rowY, inner, 8, 32);
+        int fsX = 16 + bCheckAll.Width + bCheckNone.Width + bCopyText.Width + 32;
+        fileStatus.SetBounds(fsX, rowY + 8, Math.Max(60, cardList.Width - fsX - 22), 18);
+
+        int diffY = listY + listH + 8;
+        int diffH = bY - diffY - 10;
+        cardDiff.SetBounds(pad - 6, diffY, W - (pad - 6) * 2, Math.Max(90, diffH));
+        int half = (cardDiff.Width - 54) / 2;
+        lblOrig.Location = new Point(18, 14);
+        origBox.SetBounds(18, 36, half, Math.Max(28, cardDiff.Height - 54));
+        lblFixed.Location = new Point(36 + half, 14);
+        fixedPrev.SetBounds(36 + half, 36, half, Math.Max(28, cardDiff.Height - 54));
+
+        FlowRow(new Control[] { bSaveAs, bOverwrite, bReport }, pad, bY, avail, 12, 38);
+        lblFileNote.SetBounds(pad, noteY, avail, 18);
     }
 
-    Label FLabel(string text) {
-        Label l = new Label();
-        l.Text = text; l.AutoSize = true;
-        tabFiles.Controls.Add(l);
-        return l;
-    }
+    // ---------------- Folder Watcher page ----------------
+    void BuildWatchPage() {
+        pgWatch = NewPage();
+        lblWatchTitle = Cap(pgWatch, "Folder Watcher", 15F, FontStyle.Bold);
 
-    Button FBtn(string text) {
-        Button b = new Button();
-        b.Text = text;
-        b.FlatStyle = FlatStyle.Flat;
-        tabFiles.Controls.Add(b);
-        return b;
-    }
-
-    // ---------------- Watcher tab ----------------
-    void BuildWatchTab() {
-        lblWatchCap = WLabel("Watch this folder for exported .txt and .svg files:");
+        cardWatchTop = new CardPanel();
+        pgWatch.Controls.Add(cardWatchTop);
+        lblWatchCap = Cap(cardWatchTop, "Watch this folder for exported .txt and .svg files", 9F, FontStyle.Bold);
         watchDir = new TextBox();
-        tabWatch.Controls.Add(watchDir);
-        bBrowse = WBtn("Browse\u2026");
-        cBak = new CheckBox();
-        cBak.Text = "Keep a .bak copy of the original before fixing (recommended)";
-        cBak.Checked = true; cBak.AutoSize = true;
-        tabWatch.Controls.Add(cBak);
-        bWatchToggle = WBtn("\u25B6 Start watching");
-        bWatchToggle.FlatAppearance.BorderSize = 0;
-        watchStatus = WLabel("Watcher is off.");
-        lblLogCap = WLabel("ACTIVITY LOG");
-        lblLogCap.Font = new Font("Consolas", 8.5F);
+        watchDir.BorderStyle = BorderStyle.FixedSingle;
+        cardWatchTop.Controls.Add(watchDir);
+        bBrowse = QBtn(cardWatchTop, "Browse", PillButton.Secondary, 108);
+        cBak = Chk(cardWatchTop, "Keep a .bak copy of the original before fixing (recommended)", true);
+        swWatch = new ToggleSwitch();
+        cardWatchTop.Controls.Add(swWatch);
+        lblWatchToggleCap = Cap(cardWatchTop, "Watcher", 10F, FontStyle.Bold);
+        watchStatus = Cap(cardWatchTop, "Watcher is off.", 8.75F, FontStyle.Regular);
+        tips.SetToolTip(swWatch, "Start or stop watching the folder");
+
+        cardLog = new CardPanel();
+        pgWatch.Controls.Add(cardLog);
+        lblLogCap = Cap(cardLog, "ACTIVITY LOG", 8F, FontStyle.Bold);
         watchLog = new ListBox();
-        watchLog.BorderStyle = BorderStyle.FixedSingle;
-        tabWatch.Controls.Add(watchLog);
-        lblWatchNote = WLabel("Watcher skips files with no RTL text and files that are already converted. " +
-            "Uses the Options from the Quick Fix tab.");
+        watchLog.BorderStyle = BorderStyle.None;
+        watchLog.IntegralHeight = false;
+        cardLog.Controls.Add(watchLog);
+
+        lblWatchNote = Cap(pgWatch, "Files with no RTL text and files that are already converted are skipped. Uses the options from Quick Fix and Settings.", 8.25F, FontStyle.Regular);
         lblWatchNote.AutoSize = false;
+
         watchTimer = new System.Windows.Forms.Timer();
         watchTimer.Interval = 400;
     }
 
     void LayoutWatch() {
-        int W = tabWatch.ClientSize.Width, H = tabWatch.ClientSize.Height;
-        if (W < 100 || H < 100) return;
-        lblWatchCap.Location = new Point(16, 14);
-        watchDir.SetBounds(14, 36, W - 28 - 92, 24);
-        bBrowse.SetBounds(W - 98, 35, 84, 26);
-        cBak.Location = new Point(16, 70);
-        bWatchToggle.SetBounds(14, 96, 150, 32);
-        watchStatus.Location = new Point(176, 104);
-        lblLogCap.Location = new Point(16, 142);
-        watchLog.SetBounds(14, 160, W - 28, Math.Max(60, H - 160 - 48));
-        lblWatchNote.Location = new Point(16, H - 36);
-        lblWatchNote.Size = new Size(W - 32, 28);
+        int W = pgWatch.ClientSize.Width, H = pgWatch.ClientSize.Height;
+        if (W < 120 || H < 120) return;
+        int pad = 22;
+        lblWatchTitle.Location = new Point(pad, 18);
+
+        cardWatchTop.SetBounds(pad - 6, 52, W - (pad - 6) * 2, 168);
+        lblWatchCap.Location = new Point(18, 16);
+        watchDir.SetBounds(18, 42, cardWatchTop.Width - 160, 26);
+        bBrowse.SetBounds(cardWatchTop.Width - 134, 38, 108, 34);
+        cBak.SetBounds(18, 80, cardWatchTop.Width - 44, 24);
+        swWatch.Location = new Point(18, 116);
+        lblWatchToggleCap.Location = new Point(74, 119);
+        watchStatus.Location = new Point(148, 121);
+
+        int logY = 230;
+        cardLog.SetBounds(pad - 6, logY, W - (pad - 6) * 2, Math.Max(90, H - logY - 44));
+        lblLogCap.Location = new Point(18, 14);
+        watchLog.SetBounds(18, 36, cardLog.Width - 42, Math.Max(40, cardLog.Height - 56));
+        lblWatchNote.SetBounds(pad, H - 30, W - pad * 2, 20);
     }
 
-    Label WLabel(string text) {
-        Label l = new Label();
-        l.Text = text; l.AutoSize = true;
-        tabWatch.Controls.Add(l);
-        return l;
+    // ---------------- History page ----------------
+    void BuildHistoryPage() {
+        pgHistory = NewPage();
+        lblHistTitle = Cap(pgHistory, "History", 15F, FontStyle.Bold);
+        lblHistNote = Cap(pgHistory, "The last 10 conversions from this session.", 9F, FontStyle.Regular);
+
+        cardHistList = new CardPanel();
+        pgHistory.Controls.Add(cardHistList);
+        histList = new ListBox();
+        histList.BorderStyle = BorderStyle.None;
+        histList.IntegralHeight = false;
+        cardHistList.Controls.Add(histList);
+
+        cardHistPrev = new CardPanel();
+        pgHistory.Controls.Add(cardHistPrev);
+        lblHistOrig = Cap(cardHistPrev, "ORIGINAL", 8F, FontStyle.Bold);
+        histOrig = new TextBox();
+        histOrig.Multiline = true; histOrig.ReadOnly = true;
+        histOrig.RightToLeft = RightToLeft.Yes;
+        histOrig.Font = new Font("Arial", 12F);
+        histOrig.BorderStyle = BorderStyle.None;
+        cardHistPrev.Controls.Add(histOrig);
+        lblHistFixed = Cap(cardHistPrev, "CONVERTED \u2014 Affinity preview", 8F, FontStyle.Bold);
+        histFixed = new PreviewPanel();
+        histFixed.BorderStyle = BorderStyle.None;
+        cardHistPrev.Controls.Add(histFixed);
+
+        bHistUse = QBtn(pgHistory, "Send to Quick Fix", PillButton.Primary, 168);
+        bHistCopy = QBtn(pgHistory, "Copy converted", PillButton.Secondary, 150);
+        bHistClear = QBtn(pgHistory, "Clear history", PillButton.Ghost, 130);
     }
 
-    Button WBtn(string text) {
-        Button b = new Button();
-        b.Text = text;
-        b.FlatStyle = FlatStyle.Flat;
-        tabWatch.Controls.Add(b);
-        return b;
+    void LayoutHistory() {
+        int W = pgHistory.ClientSize.Width, H = pgHistory.ClientSize.Height;
+        if (W < 120 || H < 120) return;
+        int pad = 22;
+        lblHistTitle.Location = new Point(pad, 18);
+        lblHistNote.Location = new Point(pad, 46);
+
+        int topY = 78;
+        int listH = Math.Max(90, (H - topY - 82) * 40 / 100);
+        cardHistList.SetBounds(pad - 6, topY, W - (pad - 6) * 2, listH);
+        histList.SetBounds(16, 16, cardHistList.Width - 38, Math.Max(40, listH - 34));
+
+        int pY = topY + listH + 8;
+        int pH = H - pY - 74;
+        cardHistPrev.SetBounds(pad - 6, pY, W - (pad - 6) * 2, Math.Max(96, pH));
+        int half = (cardHistPrev.Width - 54) / 2;
+        lblHistOrig.Location = new Point(18, 14);
+        histOrig.SetBounds(18, 36, half, Math.Max(30, cardHistPrev.Height - 54));
+        lblHistFixed.Location = new Point(36 + half, 14);
+        histFixed.SetBounds(36 + half, 36, half, Math.Max(30, cardHistPrev.Height - 54));
+
+        int bY = H - 58;
+        FlowRow(new Control[] { bHistUse, bHistCopy, bHistClear }, pad, bY, W - pad * 2, 12, 38);
+    }
+
+    void RefreshHistoryList() {
+        loadingUi = true;
+        int sel = histList.SelectedIndex;
+        histList.Items.Clear();
+        foreach (string[] h in history) histList.Items.Add(h[2]);
+        if (sel >= 0 && sel < histList.Items.Count) histList.SelectedIndex = sel;
+        else if (histList.Items.Count > 0) histList.SelectedIndex = 0;
+        loadingUi = false;
+        ShowHistorySel();
+    }
+
+    void ShowHistorySel() {
+        int i = histList.SelectedIndex;
+        if (i < 0 || i >= history.Count) { histOrig.Text = ""; histFixed.SetText(""); return; }
+        histOrig.Text = history[i][0];
+        histFixed.SetText(history[i][1]);
+    }
+
+    // ---------------- Settings page ----------------
+    void BuildSettingsPage() {
+        pgSettings = NewPage();
+        lblSetTitle = Cap(pgSettings, "Settings", 15F, FontStyle.Bold);
+
+        cardOpts = new CardPanel();
+        pgSettings.Controls.Add(cardOpts);
+        lblOptsCap = Cap(cardOpts, "Cleanup", 11F, FontStyle.Bold);
+        cHidden = Chk(cardOpts, "Remove hidden characters", true);
+        cDia = Chk(cardOpts, "Remove diacritics (harakat / niqqud)", false);
+        cTat = Chk(cardOpts, "Remove tatweel \u0640", false);
+        cPunct = Chk(cardOpts, "\u060C \u061B \u061F \u2192 Latin , ; ?", false);
+
+        cardSpell = new CardPanel();
+        pgSettings.Controls.Add(cardSpell);
+        lblSpellCap = Cap(cardSpell, "Normalisation \u2014 changes spelling", 11F, FontStyle.Bold);
+        cAlef = Chk(cardSpell, "Unify alef \u0623\u0625\u0622 \u2192 \u0627", false);
+        cYaTa = Chk(cardSpell, "\u0649 \u2192 \u064A and \u0629 \u2192 \u0647", false);
+
+        cardPrefs = new CardPanel();
+        pgSettings.Controls.Add(cardPrefs);
+        lblPrefsCap = Cap(cardPrefs, "Presets and appearance", 11F, FontStyle.Bold);
+        lblPresetCap = Cap(cardPrefs, "Preset", 9F, FontStyle.Regular);
+        cmbPreset = new ComboBox();
+        cmbPreset.DropDownStyle = ComboBoxStyle.DropDownList;
+        cmbPreset.FlatStyle = FlatStyle.Flat;
+        cardPrefs.Controls.Add(cmbPreset);
+        bSavePreset = QBtn(cardPrefs, "Save preset", PillButton.Secondary, 122);
+        bDelPreset = QBtn(cardPrefs, "Delete", PillButton.Ghost, 92);
+        lblThemeCap = Cap(cardPrefs, "Dark theme", 9F, FontStyle.Regular);
+        swDark = new ToggleSwitch();
+        cardPrefs.Controls.Add(swDark);
+
+        lblSetNote = Cap(pgSettings, "Settings are stored in %APPDATA%\\NassakhRTL\\settings.ini. Presets remember every option including the paragraph break width.", 8.25F, FontStyle.Regular);
+        lblSetNote.AutoSize = false;
+
+        // history combo is retired from the UI but kept alive for settings compatibility
+        cmbHistory = new ComboBox();
+        cmbHistory.DropDownStyle = ComboBoxStyle.DropDownList;
+        cmbHistory.Visible = false;
+        pgSettings.Controls.Add(cmbHistory);
+        lblHistCap = Cap(pgSettings, "", 8F, FontStyle.Regular);
+        lblHistCap.Visible = false;
+    }
+
+    void LayoutSettings() {
+        int W = pgSettings.ClientSize.Width, H = pgSettings.ClientSize.Height;
+        if (W < 120 || H < 120) return;
+        int pad = 22;
+        lblSetTitle.Location = new Point(pad, 18);
+        int cw = W - (pad - 6) * 2;
+
+        cardOpts.SetBounds(pad - 6, 52, cw, 168);
+        lblOptsCap.Location = new Point(18, 16);
+        cHidden.SetBounds(18, 48, cw - 44, 24);
+        cDia.SetBounds(18, 76, cw - 44, 24);
+        cTat.SetBounds(18, 104, cw - 44, 24);
+        cPunct.SetBounds(18, 132, cw - 44, 24);
+
+        cardSpell.SetBounds(pad - 6, 228, cw, 122);
+        lblSpellCap.Location = new Point(18, 16);
+        cAlef.SetBounds(18, 48, cw - 44, 24);
+        cYaTa.SetBounds(18, 76, cw - 44, 24);
+
+        cardPrefs.SetBounds(pad - 6, 358, cw, 140);
+        lblPrefsCap.Location = new Point(18, 16);
+        lblPresetCap.Location = new Point(18, 52);
+        cmbPreset.SetBounds(72, 48, 168, 24);
+        bSavePreset.SetBounds(252, 44, 122, 32);
+        bDelPreset.SetBounds(382, 44, 92, 32);
+        lblThemeCap.Location = new Point(18, 96);
+        swDark.Location = new Point(96, 92);
+
+        lblSetNote.SetBounds(pad, 512, W - pad * 2, 36);
+    }
+
+    // ---------------- right statistics pane ----------------
+    void BuildStatsPane() {
+        lblStatsTitle = Cap(statsPane, "Statistics", 11F, FontStyle.Bold);
+
+        cardStats = new CardPanel();
+        statsPane.Controls.Add(cardStats);
+        dChars = new DonutStat();
+        dChars.Caption = "Characters fixed"; dChars.Unit = "this session";
+        cardStats.Controls.Add(dChars);
+        dFiles = new DonutStat();
+        dFiles.Caption = "Files processed"; dFiles.Unit = "this session";
+        cardStats.Controls.Add(dFiles);
+        dItems = new DonutStat();
+        dItems.Caption = "Text items fixed"; dItems.Unit = "in files";
+        cardStats.Controls.Add(dItems);
+
+        cardLive = new CardPanel();
+        statsPane.Controls.Add(cardLive);
+        lblLiveCap = Cap(cardLive, "Live Mode", 10.5F, FontStyle.Bold);
+        lblLiveSub = Cap(cardLive, "Auto-fix exports in the watched folder.", 8.25F, FontStyle.Regular);
+        lblLiveSub.AutoSize = false;
+        swLive = new ToggleSwitch();
+        cardLive.Controls.Add(swLive);
+        tips.SetToolTip(swLive, "Same switch as the folder watcher");
+
+        cardTips = new CardPanel();
+        statsPane.Controls.Add(cardTips);
+        lblTipsTitle = Cap(cardTips, "Tip", 10.5F, FontStyle.Bold);
+        lblTipsBody = Cap(cardTips, "", 8.5F, FontStyle.Regular);
+        lblTipsBody.AutoSize = false;
+
+        statsPane.Resize += delegate(object s, EventArgs e) { LayoutStats(); };
+    }
+
+    void LayoutStats() {
+        int W = statsPane.ClientSize.Width, H = statsPane.ClientSize.Height;
+        if (W < 80 || H < 80) return;
+        int pad = 10;
+        lblStatsTitle.Location = new Point(pad + 8, 20);
+
+        cardStats.SetBounds(pad - 4, 44, W - (pad - 4) * 2 - 6, 226);
+        int iw = cardStats.Width - 40;
+        dChars.SetBounds(18, 16, iw, 66);
+        dFiles.SetBounds(18, 88, iw, 66);
+        dItems.SetBounds(18, 160, iw, 66);
+
+        cardLive.SetBounds(pad - 4, 280, W - (pad - 4) * 2 - 6, 108);
+        lblLiveCap.Location = new Point(18, 16);
+        swLive.Location = new Point(cardLive.Width - 76, 14);
+        lblLiveSub.SetBounds(18, 44, cardLive.Width - 40, 48);
+
+        int tipsY = 398;
+        cardTips.SetBounds(pad - 4, tipsY, W - (pad - 4) * 2 - 6, Math.Max(96, H - tipsY - 16));
+        lblTipsTitle.Location = new Point(18, 16);
+        lblTipsBody.SetBounds(18, 42, cardTips.Width - 40, Math.Max(40, cardTips.Height - 58));
+    }
+
+    void UpdateStats() {
+        dChars.Value = Short(statChars);
+        dChars.Fraction = (statChars % 1000) / 1000f;
+        dFiles.Value = statFiles.ToString();
+        dFiles.Fraction = (statFiles % 10) / 10f;
+        dItems.Value = statItems.ToString();
+        dItems.Fraction = (statItems % 25) / 25f;
+        dChars.Invalidate(); dFiles.Invalidate(); dItems.Invalidate();
+    }
+
+    static string Short(long n) {
+        if (n >= 1000000) return (n / 1000000).ToString() + "M";
+        if (n >= 1000) return (n / 1000).ToString() + "k";
+        return n.ToString();
+    }
+
+    void UpdateStatusBar() {
+        string mode = watcher.Running ? "Live Mode on" : "Live Mode off";
+        TimeSpan up = DateTime.Now - sessionStart;
+        lblStatusRight.Text = input.Text.Length.ToString() + " chars in box  \u00B7  "
+            + mode + "  \u00B7  active " + ((int)up.TotalMinutes).ToString() + "m";
+    }
+
+    static string[] TipList = new string[] {
+        "Set paragraph alignment to RIGHT in Affinity before pasting multi-line text.",
+        "Ctrl+Alt+R fixes whatever is on the clipboard, from any app.",
+        "Ctrl+Alt+F fixes the Affinity text box you are typing in; Ctrl+Alt+Z undoes it.",
+        "If a paragraph still re-wraps in a narrow frame, lower the break width.",
+        "Export SVG from Affinity with \"Text as text\" so the text stays editable.",
+        "Converted text is not editable Arabic any more \u2014 keep your source file."
+    };
+    int tipIdx = 0;
+
+    protected override void OnShown(EventArgs e) {
+        base.OnShown(e);
+        LayoutAll();
+    }
+
+    void LayoutAll() {
+        LayoutShell(); LayoutStats();
+        LayoutQuick(); LayoutFiles(); LayoutWatch(); LayoutHistory(); LayoutSettings();
     }
 
     // ---------------- tray ----------------
     void BuildTray() {
         tray = new NotifyIcon();
         tray.Icon = AssetLoader.AppIcon();
-        tray.Text = "NassakhRTL 2.0.2";
+        tray.Text = "NassakhRTL 2.1";
         tray.Visible = true;
         ContextMenuStrip m = new ContextMenuStrip();
-        m.Items.Add("Open NassakhRTL", null, delegate(object s, EventArgs e) { RestoreFromTray(); });
+        m.Items.Add("Quick Fix (open window)", null, delegate(object s, EventArgs e) { RestoreFromTray(); ShowPage("quick"); });
         m.Items.Add("Fix clipboard now  (Ctrl+Alt+R)", null, delegate(object s, EventArgs e) { FixClipboard(); });
         m.Items.Add(new ToolStripSeparator());
-        trayWatchItem = new ToolStripMenuItem("Folder watcher");
+        trayWatchItem = new ToolStripMenuItem("Live Mode / folder watcher");
         trayWatchItem.CheckOnClick = true;
         trayWatchItem.Click += delegate(object s, EventArgs e) { ToggleWatcher(trayWatchItem.Checked); };
         m.Items.Add(trayWatchItem);
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Exit", null, delegate(object s, EventArgs e) { reallyExit = true; Close(); });
+        m.Items.Add("Exit", null, delegate(object s, EventArgs e) { Close(); });
         tray.ContextMenuStrip = m;
         tray.DoubleClick += delegate(object s, EventArgs e) { RestoreFromTray(); };
     }
@@ -2389,7 +3314,7 @@ public class MainForm : Form {
 
     // ---------------- events ----------------
     void HookEvents() {
-        input.TextChanged += delegate(object s, EventArgs e) { debounce.Stop(); debounce.Start(); };
+        input.TextChanged += delegate(object s, EventArgs e) { debounce.Stop(); debounce.Start(); UpdateStatusBar(); };
         debounce.Tick += delegate(object s, EventArgs e) { debounce.Stop(); UpdatePreview(); };
 
         EventHandler optChanged = delegate(object s, EventArgs e) {
@@ -2405,11 +3330,21 @@ public class MainForm : Form {
         numWrap.ValueChanged += optChanged;
         cTop.CheckedChanged += delegate(object s, EventArgs e) { TopMost = cTop.Checked; };
 
+        navQuick.Click += delegate(object s, EventArgs e) { ShowPage("quick"); };
+        navFiles.Click += delegate(object s, EventArgs e) { ShowPage("files"); };
+        navWatch.Click += delegate(object s, EventArgs e) { ShowPage("watch"); };
+        navHistory.Click += delegate(object s, EventArgs e) { ShowPage("history"); };
+        navSettings.Click += delegate(object s, EventArgs e) { ShowPage("settings"); };
+
         bConvert.Click += delegate(object s, EventArgs e) { ConvertCopy(); };
         bClip.Click += delegate(object s, EventArgs e) { FixClipboard(); };
         bRestore.Click += delegate(object s, EventArgs e) { RestoreClipboard(); };
         bClear.Click += delegate(object s, EventArgs e) { input.Text = ""; UpdatePreview(); };
-        bTheme.Click += delegate(object s, EventArgs e) { dark = !dark; ApplyTheme(); };
+        bTheme.Click += delegate(object s, EventArgs e) { dark = !dark; swDark.Checked = dark; ApplyTheme(); };
+        swDark.CheckedChanged += delegate(object s, EventArgs e) {
+            if (loadingUi || dark == swDark.Checked) return;
+            dark = swDark.Checked; ApplyTheme();
+        };
         bAbout.Click += delegate(object s, EventArgs e) { using (AboutDialog d = new AboutDialog(th)) d.ShowDialog(this); };
         bImport.Click += delegate(object s, EventArgs e) { ImportToQuick(); };
         bExport.Click += delegate(object s, EventArgs e) { exportMenu.Show(bExport, new Point(0, bExport.Height)); };
@@ -2423,6 +3358,7 @@ public class MainForm : Form {
 
         preview.GlyphPicked += delegate(string g) { inspector.Text = Engine.Inspect(g); };
         fixedPrev.GlyphPicked += delegate(string g) { fileStatus.Text = Engine.Inspect(g); };
+        histFixed.GlyphPicked += delegate(string g) { lblHistNote.Text = Engine.Inspect(g); };
 
         bSavePreset.Click += delegate(object s, EventArgs e) { SavePreset(); };
         bDelPreset.Click += delegate(object s, EventArgs e) { DeletePreset(); };
@@ -2431,10 +3367,23 @@ public class MainForm : Form {
             string name = (string)cmbPreset.SelectedItem;
             if (presets.ContainsKey(name)) SetOptions(FixOptions.FromBits(presets[name]));
         };
-        cmbHistory.SelectedIndexChanged += delegate(object s, EventArgs e) {
-            if (loadingUi || cmbHistory.SelectedIndex < 0) return;
-            input.Text = history[cmbHistory.SelectedIndex][0];
+
+        histList.SelectedIndexChanged += delegate(object s, EventArgs e) { if (!loadingUi) ShowHistorySel(); };
+        bHistUse.Click += delegate(object s, EventArgs e) {
+            int i = histList.SelectedIndex;
+            if (i < 0 || i >= history.Count) return;
+            input.Text = history[i][0];
+            ShowPage("quick");
             UpdatePreview();
+        };
+        bHistCopy.Click += delegate(object s, EventArgs e) {
+            int i = histList.SelectedIndex;
+            if (i < 0 || i >= history.Count) return;
+            try { Clipboard.SetText(history[i][1]); Say("\u2713 Converted text copied from history.", true); }
+            catch (Exception ex) { Say("Copy failed: " + ex.Message, false); }
+        };
+        bHistClear.Click += delegate(object s, EventArgs e) {
+            history.Clear(); RefreshHistoryList();
         };
 
         KeyDown += delegate(object s, KeyEventArgs e) {
@@ -2452,8 +3401,10 @@ public class MainForm : Form {
         DragEventHandler drop = delegate(object s, DragEventArgs e) { HandleDrop(e); };
         DragEnter += enter; DragDrop += drop;
         input.DragEnter += enter; input.DragDrop += drop;
+        cardDrop.AllowDrop = true;
+        cardDrop.DragEnter += enter; cardDrop.DragDrop += drop;
 
-        // files tab
+        // files page
         bOpenFile.Click += delegate(object s, EventArgs e) { OpenFileDialogFlow(); };
         list.SelectedIndexChanged += delegate(object s, EventArgs e) { ShowSelectedItem(); };
         list.ItemChecked += delegate(object s, ItemCheckedEventArgs e) {
@@ -2468,17 +3419,42 @@ public class MainForm : Form {
         bOverwrite.Click += delegate(object s, EventArgs e) { FileOverwrite(); };
         bReport.Click += delegate(object s, EventArgs e) { FileReport(); };
 
-        // watcher tab
+        // watcher page
         bBrowse.Click += delegate(object s, EventArgs e) {
             using (FolderBrowserDialog d = new FolderBrowserDialog()) {
                 if (d.ShowDialog(this) == DialogResult.OK) watchDir.Text = d.SelectedPath;
             }
         };
-        bWatchToggle.Click += delegate(object s, EventArgs e) { ToggleWatcher(!watcher.Running); };
+        swWatch.CheckedChanged += delegate(object s, EventArgs e) {
+            if (watchGuard) return;
+            ToggleWatcher(swWatch.Checked);
+        };
+        swLive.CheckedChanged += delegate(object s, EventArgs e) {
+            if (watchGuard) return;
+            ToggleWatcher(swLive.Checked);
+        };
         watcher.GetOptions = CurrentOptions;
         watcher.Log += OnWatcherLog;
         watchTimer.Tick += delegate(object s, EventArgs e) { watcher.Tick(); };
         watchTimer.Start();
+
+        // page layout recompute
+        pgQuick.Resize += delegate(object s, EventArgs e) { LayoutQuick(); };
+        pgFiles.Resize += delegate(object s, EventArgs e) { LayoutFiles(); };
+        pgWatch.Resize += delegate(object s, EventArgs e) { LayoutWatch(); };
+        pgHistory.Resize += delegate(object s, EventArgs e) { LayoutHistory(); };
+        pgSettings.Resize += delegate(object s, EventArgs e) { LayoutSettings(); };
+
+        // rotating tip + uptime refresh
+        System.Windows.Forms.Timer tipTimer = new System.Windows.Forms.Timer();
+        tipTimer.Interval = 12000;
+        tipTimer.Tick += delegate(object s, EventArgs e) {
+            tipIdx = (tipIdx + 1) % TipList.Length;
+            lblTipsBody.Text = TipList[tipIdx];
+            UpdateStatusBar();
+        };
+        tipTimer.Start();
+        lblTipsBody.Text = TipList[0];
 
         // minimize to tray
         Resize += delegate(object s, EventArgs e) {
@@ -2491,18 +3467,17 @@ public class MainForm : Form {
                 }
             }
         };
-        FormClosing += delegate(object s, FormClosingEventArgs e) {
-            if (!reallyExit && e.CloseReason == CloseReason.UserClosing) {
-                // X closes for real; tray Exit also closes; nothing intercepted
-            }
-        };
     }
 
     void OnWatcherLog(string msg, bool ok) {
         if (InvokeRequired) { BeginInvoke(new Action<string, bool>(OnWatcherLog), msg, ok); return; }
         watchLog.Items.Insert(0, DateTime.Now.ToString("HH:mm:ss") + "  " + msg);
         if (watchLog.Items.Count > 200) watchLog.Items.RemoveAt(watchLog.Items.Count - 1);
-        if (ok && msg.StartsWith("Fixed")) TrayTip("NassakhRTL watcher", msg, true);
+        if (ok && msg.StartsWith("Fixed")) {
+            statFiles++;
+            UpdateStats();
+            TrayTip("NassakhRTL watcher", msg, true);
+        }
     }
 
     void ToggleWatcher(bool on) {
@@ -2510,23 +3485,31 @@ public class MainForm : Form {
             string dir = watchDir.Text.Trim();
             if (dir.Length == 0 || !Directory.Exists(dir)) {
                 watchStatus.Text = "Pick a valid folder first.";
-                tabs.SelectedTab = tabWatch;
-                trayWatchItem.Checked = false;
+                ShowPage("watch");
+                SetWatchUi(false);
                 return;
             }
             watcher.MakeBak = cBak.Checked;
             watcher.Start(dir);
-            bWatchToggle.Text = "\u25A0 Stop watching";
             watchStatus.Text = "Watching " + dir;
-            trayWatchItem.Checked = true;
+            SetWatchUi(true);
             OnWatcherLog("Watcher started on " + dir, true);
         } else {
             watcher.Stop();
-            bWatchToggle.Text = "\u25B6 Start watching";
             watchStatus.Text = "Watcher is off.";
-            trayWatchItem.Checked = false;
+            SetWatchUi(false);
             OnWatcherLog("Watcher stopped", true);
         }
+        UpdateStatusBar();
+    }
+
+    // keeps the three watcher switches in sync without re-entering ToggleWatcher
+    void SetWatchUi(bool on) {
+        watchGuard = true;
+        swWatch.Checked = on;
+        swLive.Checked = on;
+        trayWatchItem.Checked = on;
+        watchGuard = false;
     }
 
     void HandleDrop(DragEventArgs e) {
@@ -2538,9 +3521,9 @@ public class MainForm : Form {
                 try { using (StreamReader pr = new StreamReader(files[0], Encoding.UTF8, true)) {
                     char[] buf = new char[300]; int n = pr.Read(buf, 0, 300); probe = new string(buf, 0, n); } }
                 catch (Exception) { }
-                if (ext == ".svg" || Engine.LooksLikeMarkup(probe) || tabs.SelectedTab == tabFiles) {
+                if (ext == ".svg" || Engine.LooksLikeMarkup(probe) || curPage == "files") {
                     OpenFileIntoEditor(files[0]);
-                    tabs.SelectedTab = tabFiles;
+                    ShowPage("files");
                 } else {
                     StringBuilder sb = new StringBuilder();
                     foreach (string f in files) {
@@ -2579,15 +3562,20 @@ public class MainForm : Form {
         cPunct.Checked = o.PunctToLatin;
         cAlef.Checked = o.NormalizeAlef;
         cYaTa.Checked = o.NormalizeYaTa;
+        // wrap settings round-trip too, so a preset restores exactly what it saved
+        cWrap.Checked = o.WrapWidth > 0;
+        if (o.WrapWidth > 0)
+            numWrap.Value = Math.Max(numWrap.Minimum, Math.Min(numWrap.Maximum, (decimal)o.WrapWidth));
         loadingUi = false;
         UpdatePreview();
     }
 
     void UpdatePreview() {
+        UpdateStatusBar();
         if (input.Text.Length == 0) { preview.SetText(""); lastConverted = ""; Say("", true); return; }
         if (Engine.LooksLikeMarkup(input.Text)) {
             preview.SetText(""); lastConverted = "";
-            Say("This looks like SVG/XML markup. Use the Files tab so only the text content is fixed.", false);
+            Say("This looks like SVG/XML markup. Use the Files page so only the text content is fixed.", false);
             return;
         }
         FixResult r = Engine.Convert(input.Text, CurrentOptions());
@@ -2608,6 +3596,7 @@ public class MainForm : Form {
             preview.SetText(r.Text);
             Clipboard.SetText(r.Text);
             PushHistory(input.Text, r.Text);
+            CountChars(r);
             Say("\u2713 " + r.Summary + " \u2014 copied, paste into Affinity (Ctrl+V)", true);
         } catch (Exception ex) { Say("Error: " + ex.Message, false); }
     }
@@ -2617,8 +3606,8 @@ public class MainForm : Form {
             if (!Clipboard.ContainsText()) { Say("Clipboard has no text.", false); return; }
             string t = Clipboard.GetText();
             if (Engine.LooksLikeMarkup(t)) {
-                Say("Clipboard holds SVG/XML markup, not plain text. Use the Files tab so only the text content is fixed.", false);
-                TrayTip("NassakhRTL", "Clipboard holds file markup. Nothing was converted. Use the Files tab.", false);
+                Say("Clipboard holds SVG/XML markup, not plain text. Use the Files page so only the text content is fixed.", false);
+                TrayTip("NassakhRTL", "Clipboard holds file markup. Nothing was converted. Use the Files page.", false);
                 return;
             }
             if (Engine.LooksConverted(t)) { Say("Clipboard is already in Affinity format.", false); return; }
@@ -2627,6 +3616,7 @@ public class MainForm : Form {
             input.Text = t;
             preview.SetText(r.Text);
             PushHistory(t, r.Text);
+            CountChars(r);
             System.Media.SystemSounds.Asterisk.Play();
             Say("\u2713 " + r.Summary + " \u2014 clipboard converted, paste into Affinity", true);
         } catch (Exception ex) { Say("Error: " + ex.Message, false); }
@@ -2643,15 +3633,16 @@ public class MainForm : Form {
         } catch (Exception ex) { Say("Error: " + ex.Message, false); }
     }
 
+    void CountChars(FixResult r) {
+        statChars += r.Total;
+        UpdateStats();
+    }
+
     void PushHistory(string orig, string conv) {
-        string label = DateTime.Now.ToString("HH:mm") + "  " + (orig.Length > 34 ? orig.Substring(0, 34) + "\u2026" : orig).Replace("\r", " ").Replace("\n", " ");
+        string label = DateTime.Now.ToString("HH:mm") + "  " + (orig.Length > 40 ? orig.Substring(0, 40) + "\u2026" : orig).Replace("\r", " ").Replace("\n", " ");
         history.Insert(0, new string[] { orig, conv, label });
         if (history.Count > 10) history.RemoveAt(10);
-        loadingUi = true;
-        cmbHistory.Items.Clear();
-        foreach (string[] h in history) cmbHistory.Items.Add(h[2]);
-        cmbHistory.SelectedIndex = -1;
-        loadingUi = false;
+        if (curPage == "history") RefreshHistoryList();
     }
 
     void ImportToQuick() {
@@ -2664,8 +3655,8 @@ public class MainForm : Form {
                     using (StreamReader r = new StreamReader(d.FileName, Encoding.UTF8, true)) content = r.ReadToEnd();
                     if (ext == ".svg" || Engine.LooksLikeMarkup(content)) {
                         OpenFileIntoEditor(d.FileName);
-                        tabs.SelectedTab = tabFiles;
-                        Say("\u2713 SVG/markup opened in the Files tab \u2014 only its text content will be fixed.", true);
+                        ShowPage("files");
+                        Say("\u2713 SVG/markup opened in the Files page \u2014 only its text content will be fixed.", true);
                         return;
                     }
                     input.Text = content;
@@ -2684,10 +3675,10 @@ public class MainForm : Form {
                 "nassakh-pasted-" + DateTime.Now.ToString("HHmmss") + ".svg");
             File.WriteAllText(tmp, content, new UTF8Encoding(false));
             OpenFileIntoEditor(tmp);
-            tabs.SelectedTab = tabFiles;
-            Say("Markup detected \u2014 opened in the Files tab. Only the text content will be fixed.", true);
+            ShowPage("files");
+            Say("Markup detected \u2014 opened in the Files page. Only the text content will be fixed.", true);
         } catch (Exception ex) {
-            Say("This looks like SVG/XML markup. Use the Files tab (Open SVG / TXT). " + ex.Message, false);
+            Say("This looks like SVG/XML markup. Use the Files page (Open SVG / TXT). " + ex.Message, false);
         }
     }
 
@@ -2726,7 +3717,7 @@ public class MainForm : Form {
             d.FileName = "nassakh-record.json";
             if (d.ShowDialog(this) == DialogResult.OK) {
                 try {
-                    string json = "{\n  \"app\": \"NassakhRTL 2.0.2\",\n  \"timestamp\": \""
+                    string json = "{\n  \"app\": \"NassakhRTL 2.1\",\n  \"timestamp\": \""
                         + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\",\n  \"options\": \""
                         + CurrentOptions().ToBits() + "\",\n  \"original\": \"" + JsonEsc(input.Text)
                         + "\",\n  \"converted\": \"" + JsonEsc(lastConverted) + "\"\n}\n";
@@ -2737,7 +3728,7 @@ public class MainForm : Form {
         }
     }
 
-    // ---------------- files tab actions ----------------
+    // ---------------- files page actions ----------------
     void OpenFileDialogFlow() {
         using (OpenFileDialog d = new OpenFileDialog()) {
             d.Filter = "SVG and text (*.svg;*.txt)|*.svg;*.txt|All files (*.*)|*.*";
@@ -2750,6 +3741,9 @@ public class MainForm : Form {
             curFile = RtlFile.Load(path, CurrentOptions());
             lblFile.Text = Path.GetFileName(path) + "  \u2014  " + curFile.Items.Count.ToString() + " RTL text item(s) found";
             RefreshFileList();
+            statFiles++;
+            statItems += curFile.Items.Count;
+            UpdateStats();
             if (curFile.Items.Count == 0)
                 fileStatus.Text = curFile.IsSvg
                     ? "No RTL text found. If text was exported as curves, re-export with \"Text as text\"."
@@ -2940,42 +3934,83 @@ public class MainForm : Form {
     void ApplyTheme() {
         th = dark ? Theme.Dark() : Theme.Light();
         BackColor = th.Bg;
-        header.BackColor = th.Panel;
+        header.BackColor = th.Card;
+        sidebar.BackColor = th.Sidebar;
+        statsPane.BackColor = th.Bg;
+        content.BackColor = th.Bg;
+        statusBar.BackColor = th.Card;
         bTheme.Text = dark ? "\u2600" : "\u263D";
-        tabQuick.BackColor = th.Bg; tabFiles.BackColor = th.Bg; tabWatch.BackColor = th.Bg;
-        foreach (Button b in new Button[] { bImport, bExport, bTheme, bAbout, bClip, bRestore, bClear,
-                bSavePreset, bDelPreset, bOpenFile, bOverwrite, bReport, bCheckAll, bCheckNone, bCopyText, bBrowse }) {
-            b.BackColor = th.Panel; b.ForeColor = th.Text;
-            b.FlatAppearance.BorderColor = th.Border; b.FlatAppearance.BorderSize = 1;
+
+        lblVersionPill.BackColor = th.AccentSoft;
+        lblVersionPill.ForeColor = th.AccentInk;
+        lblSideVer.Text = "Version 2.1  \u00B7  Premium";
+        lblSideVer.ForeColor = th.Sub;
+        lblSideVer.BackColor = th.Sidebar;
+        lblStatusLeft.ForeColor = th.Sub;
+        lblStatusRight.ForeColor = th.Sub;
+        lblStatusLeft.BackColor = th.Card;
+        lblStatusRight.BackColor = th.Card;
+
+        foreach (PillButton b in new PillButton[] { bImport, bExport, bTheme, bAbout, bConvert, bClip,
+                bRestore, bClear, bOpenFile, bSaveAs, bOverwrite, bReport, bCheckAll, bCheckNone,
+                bCopyText, bBrowse, bSavePreset, bDelPreset, bHistUse, bHistCopy, bHistClear }) {
+            b.Th = th; b.Invalidate();
         }
-        foreach (Button b in new Button[] { bConvert, bSaveAs, bWatchToggle }) {
-            b.BackColor = th.Accent; b.ForeColor = th.AccentText;
+        foreach (NavItem n in new NavItem[] { navQuick, navFiles, navWatch, navHistory, navSettings }) {
+            n.Th = th; n.BackColor = th.Sidebar; n.Invalidate();
         }
-        foreach (Label l in new Label[] { lblInput, lblPreview, lblOrig, lblFixed, lblFileNote, lblLogCap, lblWatchNote }) l.ForeColor = th.Sub;
-        inspector.ForeColor = th.Accent;
-        fileStatus.ForeColor = th.Accent;
-        foreach (TextBox t in new TextBox[] { input, origBox, watchDir }) { t.BackColor = th.InputBg; t.ForeColor = th.Text; }
-        preview.Th = th; preview.BackColor = th.PreviewBg; preview.Invalidate();
-        fixedPrev.Th = th; fixedPrev.BackColor = th.PreviewBg; fixedPrev.Invalidate();
-        optBox.ForeColor = th.Text;
-        foreach (CheckBox c in new CheckBox[] { cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap, cBak }) c.ForeColor = th.Text;
-        lblWrapCap.ForeColor = th.Sub;
+        foreach (FlatCheck c in new FlatCheck[] { cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap, cBak }) {
+            c.Th = th; c.Invalidate();
+        }
+        foreach (ToggleSwitch t in new ToggleSwitch[] { swWatch, swLive, swDark }) {
+            t.Th = th; t.Invalidate();
+        }
+        foreach (DonutStat d in new DonutStat[] { dChars, dFiles, dItems }) {
+            d.Th = th; d.BackColor = th.Card; d.Invalidate();
+        }
+        foreach (CardPanel c in new CardPanel[] { cardInput, cardPreview, cardDrop, cardList, cardDiff,
+                cardWatchTop, cardLog, cardHistList, cardHistPrev, cardOpts, cardSpell, cardPrefs,
+                cardStats, cardLive, cardTips }) {
+            c.Th = th; c.BackColor = th.Bg; c.Invalidate();
+        }
+        foreach (Panel p in new Panel[] { pgQuick, pgFiles, pgWatch, pgHistory, pgSettings }) p.BackColor = th.Bg;
+
+        foreach (PreviewPanel p in new PreviewPanel[] { preview, fixedPrev, histFixed }) {
+            p.Th = th; p.BackColor = th.Card; p.Invalidate();
+        }
+        foreach (TextBox t in new TextBox[] { input, origBox, watchDir, histOrig }) {
+            t.BackColor = th.Card; t.ForeColor = th.Text;
+        }
+        watchDir.BackColor = th.InputBg;
+        foreach (Label l in new Label[] { lblQuickTitle, lblFilesTitle, lblWatchTitle, lblHistTitle, lblSetTitle,
+                lblStatsTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblLiveCap, lblTipsTitle, lblWatchToggleCap }) {
+            l.ForeColor = th.Text; l.BackColor = Color.Transparent;
+        }
+        foreach (Label l in new Label[] { lblQuickSub, lblInput, lblPreview, lblOrig, lblFixed, lblFileNote,
+                lblLogCap, lblWatchNote, lblWatchCap, lblDropHint, lblFile, lblHistNote, lblHistOrig,
+                lblHistFixed, lblSetNote, lblPresetCap, lblThemeCap, lblWrapCap, lblLiveSub, lblTipsBody,
+                watchStatus, fileStatus }) {
+            l.ForeColor = th.Sub; l.BackColor = Color.Transparent;
+        }
+        inspector.ForeColor = th.AccentInk;
+        inspector.BackColor = Color.Transparent;
+        list.BackColor = th.Card; list.ForeColor = th.Text;
+        watchLog.BackColor = th.Card; watchLog.ForeColor = th.Text;
+        histList.BackColor = th.Card; histList.ForeColor = th.Text;
+        cmbPreset.BackColor = th.InputBg; cmbPreset.ForeColor = th.Text;
         numWrap.BackColor = th.InputBg; numWrap.ForeColor = th.Text;
-        foreach (Control page in new Control[] { tabQuick, tabFiles, tabWatch }) {
-            foreach (Control c in page.Controls) {
-                if (c is Label && c != lblInput && c != lblPreview && c != inspector
-                    && c != lblOrig && c != lblFixed && c != lblFileNote && c != fileStatus) c.ForeColor = th.Text;
-            }
-        }
-        list.BackColor = th.InputBg; list.ForeColor = th.Text;
-        watchLog.BackColor = th.InputBg; watchLog.ForeColor = th.Text;
-        foreach (ComboBox cb in new ComboBox[] { cmbPreset, cmbHistory }) { cb.BackColor = th.InputBg; cb.ForeColor = th.Text; }
         status.ForeColor = th.Good;
+        status.BackColor = Color.Transparent;
+        swDark.Checked = dark;
+        UpdateStats();
+        Invalidate(true);
     }
 
     void Say(string msg, bool good) {
         status.ForeColor = good ? th.Good : th.Bad;
         status.Text = msg;
+        if (msg != null && msg.Length > 0) lblStatusLeft.Text = msg;
+        UpdateStatusBar();
     }
 
     // ---------------- global hotkeys ----------------
@@ -3079,14 +4114,18 @@ public class MainForm : Form {
                 TrayTip("NassakhRTL", "No RTL text found in this box. Nothing was changed.", false);
                 return;
             }
-            outp = Engine.Convert(captured, CurrentOptions()).Text;
+            FixResult fr = Engine.Convert(captured, CurrentOptions());
+            outp = fr.Text;
+            statChars += fr.Total;
+            try { if (IsHandleCreated) BeginInvoke(new Action(UpdateStats)); } catch (Exception) { }
             // a text box is one block; Affinity treats \r\n fine, keep as is
         }
 
         try {
             Clipboard.SetText(outp);
+            Thread.Sleep(60);
             SendKeys.SendWait("^v");
-            Thread.Sleep(280);
+            Thread.Sleep(160);
         } catch (Exception) { }
         RestoreClip(savedClip);
         System.Media.SystemSounds.Asterisk.Play();

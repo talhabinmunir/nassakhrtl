@@ -4,7 +4,7 @@
 
 **Fix Arabic, Hebrew, Persian, and Urdu text for Affinity apps — instantly.**
 
-[![Version](https://img.shields.io/badge/Version-2.0.2-1e9b8c)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
+[![Version](https://img.shields.io/badge/Version-2.1-1e9b8c)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)](https://github.com/talhabinmunir/nassakhrtl/releases)
 [![Download](https://img.shields.io/badge/Download-.exe-22c55e)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 [![Gumroad](https://img.shields.io/badge/Download-Gumroad-FF90E8?logo=gumroad&logoColor=white)](https://1712812868996.gumroad.com/l/nassakhrtl)
@@ -30,6 +30,26 @@ Instead of this:
 ```
 
 Letters appear disconnected, isolated, and in the wrong order. NassakhRTL fixes that before you paste.
+
+---
+
+## What is new in v2.1
+
+A full interface rebuild. The three tabs are now a three-column dashboard: sidebar
+navigation on the left, the working area in the middle, and live session statistics
+on the right.
+
+- **Sidebar navigation** — Quick Fix, Files, Folder Watcher, History, Settings
+- **History page** — the last 10 conversions, with original/converted previews and
+  one click to send any of them back to Quick Fix
+- **Settings page** — cleanup and normalisation options, presets, and the theme
+  toggle, moved out of the cramped inline options box
+- **Statistics panel** — characters fixed, files processed and text items fixed this
+  session, plus a Live Mode toggle mirroring the folder watcher
+- **Status bar** — last action, character count, and watcher mode at a glance
+
+Everything from v1 and v2.0 still works exactly as before: the same conversion
+engine, the same hotkeys, the same file and watcher behaviour.
 
 ---
 
@@ -140,24 +160,31 @@ Single `.exe` — double-click and go. No installation, no Python, no .NET SDK.
 
 ## Screenshots
 
-<details>
-<summary>Quick Fix tab — light theme</summary>
+<details open>
+<summary>Quick Fix — light theme</summary>
 
 ![Quick Fix](assets/screenshot-light.png)
 
 </details>
 
 <details>
-<summary>Files tab — SVG editor</summary>
+<summary>Files (SVG / TXT) — file editor</summary>
 
-![Files tab](assets/screenshot-files.png)
+![Files page](assets/screenshot-files.png)
 
 </details>
 
 <details>
-<summary>Folder Watcher tab — dark theme</summary>
+<summary>Folder Watcher — dark theme</summary>
 
-![Watcher tab](assets/screenshot-watcher.png)
+![Watcher page](assets/screenshot-watcher.png)
+
+</details>
+
+<details>
+<summary>Dark theme</summary>
+
+![Dark theme](assets/screenshot-dark.png)
 
 </details>
 
@@ -204,7 +231,7 @@ Invoke-ps2exe -InputFile .\NassakhRTL.ps1 -OutputFile .\NassakhRTL.exe `
   -IconFile .\NassakhRTL.ico -NoConsole -STA `
   -title "NassakhRTL" -product "NassakhRTL" `
   -description "RTL Text Fixer for Affinity" `
-  -company "Talha bin Munir" -version "2.0.2.0"
+  -company "Talha bin Munir" -version "2.1.0.0"
 ```
 
 ---

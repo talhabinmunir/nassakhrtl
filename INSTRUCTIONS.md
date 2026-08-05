@@ -10,7 +10,7 @@ Full usage guide for **NassakhRTL 2.0**
 2. [Fix text inside Affinity — Ctrl+Alt+F](#2-fix-text-inside-affinity--ctrlaltf)
 3. [Classic clipboard workflow](#3-classic-clipboard-workflow)
 4. [The Affinity Preview panel](#4-the-affinity-preview-panel)
-5. [Files tab — SVG and TXT editor](#5-files-tab--svg-and-txt-editor)
+5. [Files page — SVG and TXT editor](#5-files-page--svg-and-txt-editor)
 6. [Folder Watcher](#6-folder-watcher)
 7. [System tray](#7-system-tray)
 8. [Options explained](#8-options-explained)
@@ -99,7 +99,7 @@ The preview panel draws each glyph left-to-right with no bidi engine — exactly
 
 ---
 
-## 5. Files tab — SVG and TXT editor
+## 5. Files page — SVG and TXT editor
 
 Use this when you want to fix a whole exported file — not just one text box.
 
@@ -109,7 +109,7 @@ Go to **File → Export → SVG**. In the SVG options, make sure **Text** is set
 
 **In NassakhRTL:**
 
-1. Click the **Files (SVG / TXT)** tab.
+1. Click **Files (SVG / TXT)** in the left sidebar.
 2. Click **Open SVG / TXT...** or drag and drop a file onto the window.
 3. The list shows every RTL text item found — with element name and change count.
 4. Click any item to see the original and fixed versions in the panels below.
@@ -139,7 +139,7 @@ Automates the fix for whole projects. Once set up, every file you export from Af
 
 **Setup:**
 
-1. Click the **Folder Watcher** tab.
+1. Click **Folder Watcher** in the left sidebar.
 2. Click **Browse** and select your project export folder.
 3. Leave **Keep a .bak copy** checked (recommended).
 4. Click **Start watching**.
@@ -175,7 +175,7 @@ When the watcher fixes a file or a hotkey runs, a balloon notification appears. 
 
 ## 8. Options explained
 
-Options are on the **Quick Fix** tab. They apply to all conversion modes — clipboard, hotkeys, file editor, and watcher.
+The two most-used options sit under the Quick Fix input; the rest live on the **Settings** page. They apply to all conversion modes — clipboard, hotkeys, file editor, and watcher.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -224,7 +224,7 @@ Useful when you work across clients who need different configurations — for ex
 
 ## 11. History
 
-The History dropdown shows your last 10 clipboard conversions from the Quick Fix tab. Select any entry to reload the original text and re-run conversion with current settings.
+The **History** page in the sidebar shows your last 10 conversions, with the original and converted text side by side. Select an entry and click **Send to Quick Fix** to reload the original and re-run conversion with current settings, or **Copy converted** to put the fixed text back on the clipboard.
 
 History is session-only — it clears when you close the app.
 
@@ -248,9 +248,9 @@ If you need to edit text that is already in Affinity visual-order format:
 
 **From an Affinity text box:** Press **Ctrl + Alt + Z** while in the box.
 
-**From the clipboard:** Click **Restore** on the Quick Fix tab. The clipboard is restored to normal logical text.
+**From the clipboard:** Click **Restore Clipboard** on the Quick Fix page. The clipboard is restored to normal logical text.
 
-**From the Files tab:** Open the fixed SVG — the original text shows in the ORIGINAL panel. You can also keep the `.bak` file as a reference.
+**From the Files page:** Open the fixed SVG — the original text shows in the ORIGINAL panel. You can also keep the `.bak` file as a reference.
 
 ---
 
@@ -313,7 +313,7 @@ This is correct. The SVG text is in visual order for a left-to-right renderer (A
 
 **Watcher fixed a file I did not want fixed**
 
-Check the `.bak` file next to the original — it contains the pre-fix version. Rename it to restore. In future, either stop the watcher before exporting files you want to keep as-is, or uncheck items in the Files tab instead.
+Check the `.bak` file next to the original — it contains the pre-fix version. Rename it to restore. In future, either stop the watcher before exporting files you want to keep as-is, or uncheck items on the Files page instead.
 
 **Persian ZWNJ (نیم‌فاصله)**
 
