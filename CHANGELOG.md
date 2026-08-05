@@ -6,6 +6,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1] — 2026-08-04
+
+### Changed
+
+- **Full UI redesign.** The three-tab window is replaced by a three-column
+  dashboard: left sidebar navigation, main content area, and a right statistics
+  panel. Card-based visual language built on the logo's teal `#1E9B8C` — rounded
+  cards with soft shadows, pill-shaped buttons, custom-drawn checkboxes, toggles
+  and donut stat rings, all painted with GDI+ so the app stays a single
+  dependency-free script.
+- Window is now 1120x736 by default (minimum 1000x680). Saved window bounds from
+  2.0.x are clamped to the new minimum on first run.
+- Layout rows now reflow: option and action rows wrap to a second line instead of
+  running off the edge when the window is at its minimum width.
+
+### Added
+
+- **History page** — the last 10 conversions with original/converted previews,
+  "Send to Quick Fix", and "Copy converted". Replaces the old dropdown.
+- **Settings page** — cleanup and normalisation options, presets, and the theme
+  toggle, collected out of the cramped inline Options box.
+- **Statistics panel** — characters fixed, files processed, and text items fixed
+  this session, drawn as donut rings, plus a Live Mode toggle and rotating tips.
+- Status bar showing the last action, character count, and watcher mode.
+- Tooltips on every icon-only control; all custom controls are tab-navigable
+  with visible focus rings and Space/Enter activation.
+
+### Fixed
+
+- **Presets did not round-trip the paragraph break width.** `ToBits` only
+  serialised the 7 boolean flags, so loading a preset silently left the wrap
+  setting at whatever was currently on screen. The width is now appended as
+  `:N`; 2.0.x settings files with a bare 7-character string still load.
+- **"Stay on top" could disagree with the window.** Settings load before the
+  handler is attached, so a restored value of off left `TopMost` on.
+
+### Accessibility
+
+- The accent is split into three roles so contrast holds without abandoning the
+  brand colour. `#1E9B8C` on white is 3.43:1 — enough for non-text marks (WCAG
+  1.4.11 needs 3:1) but short of the 4.5:1 AA floor for text sitting on it. So
+  the brand teal is used for graphics (donut rings, toggle and checkbox fills,
+  focus rings, outlines), a deepened `#17786C` backs primary buttons so a white
+  label reads at 5.33:1, and `#136B62` is used for accent-coloured text.
+- Dark mode lifts the accent to `#2BBBA9` and puts dark ink on it rather than
+  white, which would have been 2.4:1.
+- All 60 foreground/background pairs across both themes were measured against
+  the shipped `Theme` values: text ≥ 4.5:1, non-text UI ≥ 3:1.
+
+### Notes
+
+- The "never wrap inside SVG text nodes" rule is now asserted explicitly in
+  `RtlFile.Recompute` rather than relying on `ToBits` dropping the width.
+- Verified: 4/10/50-line blocks keep their input line order; SVG round-trip
+  preserves attributes, structure, XML declaration and leaves the source
+  untouched; legacy settings files still parse. Startup ~3s from the .exe.
+- Known: list and log selection still use the Windows system highlight blue
+  rather than the brand teal. Recolouring it needs owner-draw on a checkbox
+  `ListView`, which is a behaviour change rather than a colour change.
+
+---
+
 ## [2.0.2] — 2026-06-12
 
 ### Fixed
