@@ -1,5 +1,7 @@
 # =====================================================================
-#  NassakhRTL 2.1.1  -  RTL text fixer for Affinity apps (Windows)
+#  NassakhRTL  -  RTL text fixer for Affinity apps (Windows)
+#  Version: App.Version in the C# below is the ONLY place it is written;
+#           release.ps1 reads it, builds the exe with it, and verifies it.
 #  Arabic - Persian - Urdu - Hebrew
 #
 #  Start with:  NassakhRTL.bat  (same folder)  or build NassakhRTL.exe
@@ -1009,6 +1011,15 @@ using System.Runtime.InteropServices;
 // ------------------------------------------------------------------ //
 //  Conversion options + result
 // ------------------------------------------------------------------ //
+// Single source of truth for the version number. release.ps1 parses this
+// line, passes it to ps2exe, and refuses to ship an exe whose embedded
+// version differs. Every UI string, the fix report, the JSON export and
+// the About dialog read it from here. Nothing else in the repo may
+// hard-code the number; release.ps1 checks README and CHANGELOG against it.
+public static class App {
+    public const string Version = "2.1.1";
+}
+
 public class FixOptions {
     public bool WesternDigits = true;
     public bool RemoveZeroWidth = true;
@@ -2114,7 +2125,7 @@ public class AboutDialog : Form {
         pic.Location = new Point(20, 20); pic.Size = new Size(380, 64);
         Controls.Add(pic);
         Label l = new Label();
-        l.Text = "NassakhRTL 2.0\r\n\r\nFixes RTL text for Affinity apps.\r\nArabic - Persian - Urdu - Hebrew.\r\nText shaping + visual reorder, fully offline, no telemetry.";
+        l.Text = "NassakhRTL " + App.Version + "\r\n\r\nFixes RTL text for Affinity apps.\r\nArabic - Persian - Urdu - Hebrew.\r\nText shaping + visual reorder, fully offline, no telemetry.";
         l.ForeColor = th.Text;
         l.Location = new Point(20, 96); l.Size = new Size(380, 84);
         l.TextAlign = ContentAlignment.MiddleCenter;
@@ -2333,7 +2344,7 @@ public class RtlFile {
 
     public string BuildReport(FixOptions o) {
         StringBuilder sb = new StringBuilder();
-        sb.AppendLine("NassakhRTL 2.1.1 - Fix Report");
+        sb.AppendLine("NassakhRTL " + App.Version + " - Fix Report");
         sb.AppendLine("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         sb.AppendLine("File: " + SourcePath);
         sb.AppendLine("Options: " + o.ToBits());
@@ -2564,7 +2575,7 @@ public class MainForm : Form {
 
     public MainForm() {
         th = Theme.Light();
-        Text = "NassakhRTL 2.1.1";
+        Text = "NassakhRTL " + App.Version;
         Icon = AssetLoader.AppIcon();
         Font = Ui.F(9F);
         ClientSize = new Size(1120, 736);
@@ -2633,7 +2644,7 @@ public class MainForm : Form {
         header.Controls.Add(logo);
 
         lblVersionPill = new Label();
-        lblVersionPill.Text = "v2.1.1";
+        lblVersionPill.Text = "v" + App.Version;
         lblVersionPill.AutoSize = false;
         lblVersionPill.Size = new Size(44, 20);
         lblVersionPill.Location = new Point(242, 21);
@@ -3333,7 +3344,7 @@ public class MainForm : Form {
     void BuildTray() {
         tray = new NotifyIcon();
         tray.Icon = AssetLoader.AppIcon();
-        tray.Text = "NassakhRTL 2.1.1";
+        tray.Text = "NassakhRTL " + App.Version;
         tray.Visible = true;
         ContextMenuStrip m = new ContextMenuStrip();
         m.Items.Add("Quick Fix (open window)", null, delegate(object s, EventArgs e) { RestoreFromTray(); ShowPage("quick"); });
@@ -3801,7 +3812,7 @@ public class MainForm : Form {
             d.FileName = "nassakh-record.json";
             if (d.ShowDialog(this) == DialogResult.OK) {
                 try {
-                    string json = "{\n  \"app\": \"NassakhRTL 2.1.1\",\n  \"timestamp\": \""
+                    string json = "{\n  \"app\": \"NassakhRTL " + App.Version + "\",\n  \"timestamp\": \""
                         + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\",\n  \"options\": \""
                         + CurrentOptions().ToBits() + "\",\n  \"original\": \"" + JsonEsc(input.Text)
                         + "\",\n  \"converted\": \"" + JsonEsc(lastConverted) + "\"\n}\n";
@@ -4027,7 +4038,7 @@ public class MainForm : Form {
 
         lblVersionPill.BackColor = th.AccentSoft;
         lblVersionPill.ForeColor = th.AccentInk;
-        lblSideVer.Text = "Version 2.1.1  \u00B7  Premium";
+        lblSideVer.Text = "Version " + App.Version + "  \u00B7  Premium";
         lblSideVer.ForeColor = th.Sub;
         lblSideVer.BackColor = th.Sidebar;
         lblStatusLeft.ForeColor = th.Sub;

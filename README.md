@@ -222,18 +222,15 @@ LICENSE
 
 ## Build from source
 
-```powershell
-# Install ps2exe (one time)
-Install-Module -Name ps2exe -Scope CurrentUser -Force
+Releases are built and verified by `release.ps1` - see [RELEASING.md](RELEASING.md).
 
-# Build
-Invoke-ps2exe -InputFile .\NassakhRTL.ps1 -OutputFile .\NassakhRTL.exe `
-  -IconFile .\NassakhRTL.ico -NoConsole -STA `
-  -title "NassakhRTL" -product "NassakhRTL" `
-  -description "RTL Text Fixer for Affinity" `
-  -company "Talha bin Munir" -version "2.1.1.0"
+```powershell
+Install-Module -Name ps2exe -Scope CurrentUser -Force      # once
+powershell.exe -ExecutionPolicy Bypass -File .elease.ps1   # tests, build, verify, smoke test
 ```
 
+The version number lives in one place, `App.Version` in `NassakhRTL.ps1`; the script
+reads it, builds the exe with it, and refuses to finish if the exe does not carry it.
 ---
 
 ## Why not native .afdesign editing?
