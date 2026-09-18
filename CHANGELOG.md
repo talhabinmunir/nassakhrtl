@@ -6,6 +6,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.2.0] — 2026-09-18
+
+### Changed — the in-Affinity text-box hotkey is now guarded and opt-in
+
+`Ctrl+Alt+F` (fix the focused text box in place) and `Ctrl+Alt+Z` (restore it)
+have existed since 2.0.0. They type into another application, so they now
+come with the safeguards that deserves:
+
+- **Foreground check.** The hotkey only acts when an Affinity app (Designer,
+  Photo or Publisher, 1.x or 2.x) owns the active window. Anywhere else it
+  does nothing and says so in a tray notice — it will never select-all and
+  paste into an arbitrary program.
+- **Opt-in toggle** in Settings → Hotkeys. **Off for fresh installs.** A
+  settings file written by any earlier version keeps it **on**, so nobody who
+  already relies on it loses it; the settings-migration test covers both.
+- **All three hotkeys are remappable** in Settings. Click the box, press the
+  chord. A bare key without Ctrl or Alt is refused so ordinary typing can
+  never be captured. If another program already holds a chord, Settings says
+  so instead of failing silently.
+- **Confirmation names the work done:** "✓ Fixed 34 characters in Affinity.
+  Ctrl+Alt+Z undoes it."
+- The guard chain (empty / markup / already converted / no RTL → paste
+  nothing) and the clipboard save-and-restore moved into `BoxFix` and
+  `ClipboardKeeper`, which the test suite now drives directly. Keystroke
+  timing is unchanged from 2.0.0.
+
+Not in this release, by design: automatic fixing while typing. The hotkey is
+one deliberate action, one deterministic change, and Affinity's own Ctrl+Z
+reverts it like any paste.
+
+### Fixed — found by driving the hotkey against a live Affinity document
+
+- **Multi-paragraph text boxes came back with the paragraphs in reverse
+  order.** Affinity's Ctrl+C separates paragraphs with U+2029 PARAGRAPH
+  SEPARATOR (and lines with U+2028), not `\n`. Every line-aware step in the
+  engine split on `\n` only, so a two-paragraph frame was one "line" and the
+  reversal ran across the paragraph boundary. `Engine.NormalizeBreaks` now maps
+  both separators to `\n` on the way in; Affinity turns the pasted `\r\n` back
+  into paragraph breaks. This affected Ctrl+Alt+F, Ctrl+Alt+R and Quick Fix
+  whenever the source text had been copied out of Affinity — it is the
+  "lines come out reversed" report in a second form. Verified live: a
+  two-paragraph frame now round-trips to exactly the engine's output, and one
+  Ctrl+Z in Affinity restores the original byte for byte.
+
+### Added
+
+- `tests/boxfix.ps1` — 45 checks over the decision logic, the foreground
+  allow-list, hotkey specs and clipboard restore; `tests/settings-migration.ps1`
+  gains the fresh-vs-existing default and spec persistence;
+  `tests/engine-line-order.ps1` gains the U+2029 / U+2028 cases.
+
+---
+
 ## [2.1.1] — 2026-09-18
 
 ### Fixed

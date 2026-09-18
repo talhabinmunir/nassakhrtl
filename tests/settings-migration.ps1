@@ -17,9 +17,12 @@ $ini = Join-Path $dir 'settings.ini'
 $flags = [Reflection.BindingFlags]'NonPublic,Instance'
 $T = [RTLFixer.MainForm]
 
-function Load([string]$content) {
+function Load($content) {
+    # $null = fresh install (no file at all). A [string] parameter would turn
+    # $null into "" and write an EMPTY file, which the app rightly treats as an
+    # existing user's settings - a different scenario.
     if ($content -eq $null) { if (Test-Path $ini) { Remove-Item $ini -Force } }
-    else { [IO.File]::WriteAllText($ini, $content, (New-Object Text.UTF8Encoding($false))) }
+    else { [IO.File]::WriteAllText($ini, [string]$content, (New-Object Text.UTF8Encoding($false))) }
     return New-Object RTLFixer.MainForm
 }
 function Field($f, [string]$name) { return $T.GetField($name, $flags).GetValue($f) }
@@ -80,6 +83,33 @@ try {
     Close $f
     $f = Load $written
     Check "and that file reloads as OFF" (-not (WrapOn $f))
+    Close $f
+
+    Section "Text-box hotkeys: off for fresh installs, kept on for existing files"
+    function BoxOn($f) { return [bool](Field $f 'boxHotkey') }
+    $f = Load $null
+    Check "fresh install: text-box hotkeys OFF" (-not (BoxOn $f))
+    Check "fresh install: default specs Ctrl+Alt+R / F / Z" (((Field $f 'hkClipSpec') -eq 'Ctrl+Alt+R') -and ((Field $f 'hkFixSpec') -eq 'Ctrl+Alt+F') -and ((Field $f 'hkRestoreSpec') -eq 'Ctrl+Alt+Z'))
+    Close $f
+    $f = Load "theme=light`nopts=1100000:70`nwrapon=1`n"
+    Check "2.0.x-2.1.1 file (no boxhk key): text-box hotkeys stay ON" (BoxOn $f)
+    Close $f
+    $f = Load "theme=light`nboxhk=0`n"
+    Check "explicit boxhk=0: OFF" (-not (BoxOn $f))
+    Close $f
+    $f = Load "theme=light`nboxhk=1`nhk.clip=Ctrl+Shift+F9`nhk.fix=Alt+F`nhk.restore=Ctrl+Alt+U`n"
+    Check "explicit boxhk=1 and custom specs load" ((BoxOn $f) -and ((Field $f 'hkClipSpec') -eq 'Ctrl+Shift+F9') -and ((Field $f 'hkFixSpec') -eq 'Alt+F') -and ((Field $f 'hkRestoreSpec') -eq 'Ctrl+Alt+U'))
+    Close $f
+    $f = Load "theme=light`nboxhk=1`nhk.fix=F`nhk.clip=garbage`n"
+    Check "invalid specs fall back to the defaults" (((Field $f 'hkFixSpec') -eq 'Ctrl+Alt+F') -and ((Field $f 'hkClipSpec') -eq 'Ctrl+Alt+R'))
+    Close $f
+    $f = Load $null
+    $T.GetMethod('SaveSettings', $flags).Invoke($f, $null) | Out-Null
+    $w = [IO.File]::ReadAllText($ini)
+    Check "SaveSettings writes boxhk=0 and the three specs" ($w.Contains("boxhk=0") -and $w.Contains("hk.clip=Ctrl+Alt+R") -and $w.Contains("hk.fix=Ctrl+Alt+F") -and $w.Contains("hk.restore=Ctrl+Alt+Z"))
+    Close $f
+    $f = Load $w
+    Check "a file saved by this version reloads OFF (explicit key, not the legacy rule)" (-not (BoxOn $f))
     Close $f
 } finally {
     Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
