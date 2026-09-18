@@ -43,20 +43,24 @@ Windows may show "Windows protected your PC." Click **More info → Run anyway.*
 
 This is the v2 headline feature. No copy-paste needed.
 
+**Turn it on first (since 2.2.0):** Settings → Hotkeys → *Fix the focused Affinity text box in place*. It is **off on a fresh install** because it types into another application; if you upgraded from an earlier version it stays on. The same card lets you change any of the three hotkeys — click the box and press the chord you want.
+
 **Workflow:**
 
 1. In Affinity, double-click a text frame to enter text editing mode.
 2. Type or paste your Arabic, Urdu, Persian, or Hebrew text normally.
 3. Press **Ctrl + Alt + F** (release the keys fully before pressing F).
 4. NassakhRTL selects all text in the box, converts it, and pastes it back.
-5. You will hear a chime and see a tray notification confirming the fix.
+5. You will hear a chime and see a tray notification: "✓ Fixed 34 characters in Affinity."
 
 **Safety behaviour:**
 
+- The hotkey only acts while an Affinity app (Designer, Photo or Publisher) is the active window. Press it anywhere else and nothing happens except a notification saying which window was active.
 - If the text box has no RTL text — nothing is changed, notification says why.
 - If the text box is already converted — nothing is changed.
 - If the selection fails (e.g. you pressed the hotkey on the canvas, not inside a text box) — nothing is pasted, notification explains.
 - Your clipboard before pressing the hotkey is always restored afterward.
+- The paste goes through Affinity's own Ctrl+A / Ctrl+V, so a single **Ctrl+Z in Affinity** reverts it like any other paste.
 
 **Restoring a converted text box for re-editing:**
 
@@ -192,17 +196,19 @@ The two most-used options sit under the Quick Fix input; the rest live on the **
 
 ## 9. Hotkeys and keyboard shortcuts
 
-| Shortcut | Where | Action |
+| Shortcut (default) | Where | Action |
 |---|---|---|
-| **Ctrl + Alt + F** | Anywhere (global) | Fix the Affinity text box you are in |
-| **Ctrl + Alt + Z** | Anywhere (global) | Restore the Affinity text box to editable text |
+| **Ctrl + Alt + F** | Only while Affinity is the active window; needs the Settings toggle | Fix the Affinity text box you are in |
+| **Ctrl + Alt + Z** | Only while Affinity is the active window; needs the Settings toggle | Restore the Affinity text box to editable text |
 | **Ctrl + Alt + R** | Anywhere (global) | Fix the clipboard |
 | **Ctrl + Enter** | NassakhRTL window | Convert + Copy |
 | **Ctrl + Shift + V** | NassakhRTL window | Paste clipboard and immediately convert |
 
+All three global hotkeys can be changed in Settings → Hotkeys: click the box and press the new chord. A bare key without Ctrl or Alt is refused so normal typing can never be captured.
+
 **If Ctrl+Alt+F does not work:**
 
-Another app has registered that hotkey combination. The status bar will say the hotkey is not available. Use the window buttons or try Ctrl+Alt+R as a fallback.
+Check the toggle in Settings → Hotkeys first. If it is on and the card says another application holds the chord, pick a different one there. The hotkey also does nothing unless an Affinity window is in front — the tray notification names the window that was active instead.
 
 **Timing note for Ctrl+Alt+F:**
 

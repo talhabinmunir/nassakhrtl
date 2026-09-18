@@ -4,7 +4,7 @@
 
 **Fix Arabic, Hebrew, Persian, and Urdu text for Affinity apps — instantly.**
 
-[![Version](https://img.shields.io/badge/Version-2.1.1-1e9b8c)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
+[![Version](https://img.shields.io/badge/Version-2.2.0-1e9b8c)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)](https://github.com/talhabinmunir/nassakhrtl/releases)
 [![Download](https://img.shields.io/badge/Download-.exe-22c55e)](https://github.com/talhabinmunir/nassakhrtl/releases/latest)
 [![Gumroad](https://img.shields.io/badge/Download-Gumroad-FF90E8?logo=gumroad&logoColor=white)](https://1712812868996.gumroad.com/l/nassakhrtl)

@@ -1017,7 +1017,7 @@ using System.Runtime.InteropServices;
 // the About dialog read it from here. Nothing else in the repo may
 // hard-code the number; release.ps1 checks README and CHANGELOG against it.
 public static class App {
-    public const string Version = "2.1.1";
+    public const string Version = "2.2.0";
 }
 
 public class FixOptions {
@@ -1233,9 +1233,21 @@ public static class Engine {
     // preview cannot show this because it never wraps. Threshold is the
     // configured break width - shorter text fits one line in any frame that
     // would hold N characters.
+    // Affinity's Ctrl+C separates paragraphs with U+2029 (and lines with
+    // U+2028), not "\n". Every line-aware step splits on "\n", so without this
+    // a two-paragraph frame is one "line" and the paragraphs come out in
+    // reverse order after conversion. Found by driving the in-Affinity hotkey
+    // against a live document (2.2.0). Affinity turns a pasted "\r\n" back
+    // into a paragraph break, so the output side needs no change.
+    public static string NormalizeBreaks(string s) {
+        if (s == null) return null;
+        if (s.IndexOf('\u2029') < 0 && s.IndexOf('\u2028') < 0) return s;
+        return s.Replace('\u2029', '\n').Replace('\u2028', '\n');
+    }
+
     public static bool IsUnbrokenParagraph(string s, int threshold) {
         if (s == null) return false;
-        string t = s.Trim();
+        string t = NormalizeBreaks(s).Trim();
         if (t.IndexOf('\n') >= 0 || t.IndexOf('\r') >= 0) return false;
         if (t.Length <= threshold) return false;
         return HasRtl(t);
@@ -1323,7 +1335,7 @@ public static class Engine {
     }
 
     public static FixResult Convert(string text, FixOptions o) {
-        string t = text;
+        string t = NormalizeBreaks(text);
         int nHidden = 0, nSpell = 0, nPunct = 0, nDigits = 0, nDia = 0, nTat = 0, nShape = 0;
 
         // ZWNJ/ZWJ are NOT stripped here: in Persian/Urdu they legitimately
@@ -1424,7 +1436,7 @@ public static class Engine {
     }
 
     public static string Restore(string text) {
-        string reversed = ToVisual(text);
+        string reversed = ToVisual(NormalizeBreaks(text));
         StringBuilder sb = new StringBuilder();
         foreach (char c in reversed) {
             string b;
@@ -1488,6 +1500,135 @@ public static class Engine {
 //  Field names from 2.0.x are kept so PreviewPanel, PromptDialog and
 //  AboutDialog keep compiling unchanged.
 // ------------------------------------------------------------------ //
+// ------------------------------------------------------------------ //
+//  In-Affinity text-box fix: the decision logic, hotkey specs and the
+//  clipboard keeper, kept free of any keystroke simulation so the test
+//  suite can drive them. MainForm.FixActiveTextBox is only the glue:
+//  foreground check -> Save -> ^a ^c -> Decide -> ^v -> Restore.
+// ------------------------------------------------------------------ //
+public class BoxFixPlan {
+    public bool Proceed = false;   // false = paste NOTHING, tell the user why
+    public string Output = null;   // text to paste when Proceed
+    public string Reason = "";     // tray message when !Proceed
+    public int Changed = 0;        // FixResult.Total when Proceed && !restore
+    public bool WrapRisk = false;
+}
+
+public static class BoxFix {
+
+    // Exactly the guard chain the hotkey has used since 2.0.0. Order matters:
+    // markup before "already converted" before "no RTL".
+    public static BoxFixPlan Decide(string captured, bool restoreMode, FixOptions o) {
+        BoxFixPlan p = new BoxFixPlan();
+        if (captured == null || captured.Trim().Length == 0) {
+            p.Reason = "No text captured. Click inside a text box (text edit mode) first.";
+            return p;
+        }
+        if (restoreMode) {
+            if (!Engine.LooksConverted(captured)) {
+                p.Reason = "This text box does not contain converted text.";
+                return p;
+            }
+            p.Output = Engine.Restore(captured);
+            p.Proceed = true;
+            return p;
+        }
+        if (Engine.LooksLikeMarkup(captured)) {
+            p.Reason = "Captured content is file markup, not text. Nothing was changed.";
+            return p;
+        }
+        if (Engine.LooksConverted(captured)) {
+            p.Reason = "This text box is already converted. The restore hotkey turns it back.";
+            return p;
+        }
+        if (!Engine.HasRtl(captured)) {
+            p.Reason = "No RTL text found in this box. Nothing was changed.";
+            return p;
+        }
+        FixResult r = Engine.Convert(captured, o);
+        p.Output = r.Text;
+        p.Changed = r.Total;
+        p.Proceed = true;
+        p.WrapRisk = o.WrapWidth <= 0 && Engine.IsUnbrokenParagraph(captured, 70);
+        return p;
+    }
+
+    // Which foreground processes the hotkey may type into. Affinity 1.x ran as
+    // Designer.exe / Photo.exe / Publisher.exe; 2.x as "Affinity Designer 2"
+    // etc. Matched on the process name without extension, case-insensitive.
+    public static bool IsAffinityProcessName(string name) {
+        if (string.IsNullOrEmpty(name)) return false;
+        string n = name.Trim();
+        if (n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) n = n.Substring(0, n.Length - 4);
+        n = n.ToLowerInvariant();
+        if (n.StartsWith("affinity")) return true;
+        return n == "designer" || n == "photo" || n == "publisher"
+            || n.StartsWith("designer ") || n.StartsWith("photo ") || n.StartsWith("publisher ");
+    }
+
+    // ---- hotkey specs: "Ctrl+Alt+F" <-> (modifier flags, virtual key) ----
+    public const uint ModAlt = 0x0001, ModControl = 0x0002, ModShift = 0x0004, ModWin = 0x0008;
+
+    public static bool TryParse(string spec, out uint mods, out int vk) {
+        mods = 0; vk = 0;
+        if (string.IsNullOrEmpty(spec)) return false;
+        string[] parts = spec.Split('+');
+        for (int i = 0; i < parts.Length; i++) {
+            string t = parts[i].Trim();
+            if (t.Length == 0) return false;
+            string u = t.ToUpperInvariant();
+            if (i < parts.Length - 1) {
+                if (u == "CTRL" || u == "CONTROL") mods |= ModControl;
+                else if (u == "ALT") mods |= ModAlt;
+                else if (u == "SHIFT") mods |= ModShift;
+                else if (u == "WIN") mods |= ModWin;
+                else return false;
+            } else {
+                if (u.Length == 1 && ((u[0] >= 'A' && u[0] <= 'Z') || (u[0] >= '0' && u[0] <= '9'))) vk = u[0];
+                else if (u.Length >= 2 && u[0] == 'F') {
+                    int fn;
+                    if (int.TryParse(u.Substring(1), out fn) && fn >= 1 && fn <= 24) vk = 0x70 + fn - 1;
+                    else return false;
+                } else return false;
+            }
+        }
+        // a bare letter with no modifier would hijack normal typing everywhere
+        if (mods == 0 || (mods & ~ModShift) == 0) return false;
+        return vk != 0;
+    }
+
+    public static string Format(uint mods, int vk) {
+        StringBuilder sb = new StringBuilder();
+        if ((mods & ModControl) != 0) sb.Append("Ctrl+");
+        if ((mods & ModAlt) != 0) sb.Append("Alt+");
+        if ((mods & ModShift) != 0) sb.Append("Shift+");
+        if ((mods & ModWin) != 0) sb.Append("Win+");
+        if (vk >= 0x70 && vk <= 0x87) sb.Append("F" + (vk - 0x70 + 1).ToString());
+        else sb.Append((char)vk);
+        return sb.ToString();
+    }
+
+    public static string Normalize(string spec, string fallback) {
+        uint m; int k;
+        if (TryParse(spec, out m, out k)) return Format(m, k);
+        return fallback;
+    }
+}
+
+// Save the user's clipboard before the hotkey's own copy/paste cycle and put
+// it back afterwards. Text only: the hotkey needs the text slot, and a
+// non-text clipboard (an image, a file list) is left alone entirely.
+public static class ClipboardKeeper {
+    public static string Save() {
+        try { if (Clipboard.ContainsText()) return Clipboard.GetText(); } catch (Exception) { }
+        return null;
+    }
+    public static void Restore(string saved) {
+        if (saved == null) return;
+        try { Clipboard.SetText(saved); } catch (Exception) { }
+    }
+}
+
 // Anchored on the logo's teal #1E9B8C (the v1.0/v2.0 brand colour).
 //
 // The accent is split into three roles because the brand teal on white is only
@@ -2472,6 +2613,8 @@ public class MainForm : Form {
     [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
 
     const int WM_HOTKEY = 0x0312;
     const int HK_CLIPBOARD = 0xA17F;
@@ -2484,6 +2627,12 @@ public class MainForm : Form {
     bool loadingUi = false;
     bool trayTipShown = false;
     bool hkClip = false, hkFix = false, hkRestore = false;
+    // The in-Affinity text-box hotkeys type into another application, so they
+    // are opt-in. Default off for a fresh install; LoadSettings turns them on
+    // for a settings file that predates the toggle, so 2.0.x users keep what
+    // they had.
+    bool boxHotkey = false;
+    string hkClipSpec = "Ctrl+Alt+R", hkFixSpec = "Ctrl+Alt+F", hkRestoreSpec = "Ctrl+Alt+Z";
     bool watchGuard = false;
 
     // ---- shell ----
@@ -2558,9 +2707,11 @@ public class MainForm : Form {
     PillButton bHistUse, bHistCopy, bHistClear;
 
     // ---- settings page ----
-    CardPanel cardOpts, cardSpell, cardPrefs;
+    CardPanel cardOpts, cardSpell, cardPrefs, cardHotkeys;
     Label lblSetTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblThemeCap, lblSetNote;
-    ToggleSwitch swDark;
+    Label lblHkCap, lblHkNote, lblHkToggleCap, lblHkClipCap, lblHkFixCap, lblHkRestoreCap, lblHkStatus;
+    ToggleSwitch swDark, swBox;
+    TextBox hkClipBox, hkFixBox, hkRestoreBox;
 
     // NASSAKHRTL_SETTINGS_DIR lets the test suite point the form at fixture
     // settings files instead of the user's real %APPDATA% copy.
@@ -2599,6 +2750,7 @@ public class MainForm : Form {
         BuildStatsPane();
         BuildTray();
         LoadSettings();
+        ShowHotkeySettings();   // after LoadSettings, which returns early on a fresh install
         ApplyTheme();
         HookEvents();
         ShowPage("quick");
@@ -3197,6 +3349,28 @@ public class MainForm : Form {
         swDark = new ToggleSwitch();
         cardPrefs.Controls.Add(swDark);
 
+        cardHotkeys = new CardPanel();
+        pgSettings.Controls.Add(cardHotkeys);
+        lblHkCap = Cap(cardHotkeys, "Hotkeys", 11F, FontStyle.Bold);
+        swBox = new ToggleSwitch();
+        cardHotkeys.Controls.Add(swBox);
+        lblHkToggleCap = Cap(cardHotkeys, "Fix the focused Affinity text box in place", 9.5F, FontStyle.Bold);
+        lblHkNote = Cap(cardHotkeys, "Fixes RTL text directly inside Affinity's currently focused text box, then puts your clipboard back. Requires Affinity Designer, Photo or Publisher to be the active window; the hotkey does nothing anywhere else. Off by default because it types into another application.", 8.25F, FontStyle.Regular);
+        lblHkNote.AutoSize = false;
+        lblHkClipCap = Cap(cardHotkeys, "Fix clipboard", 9F, FontStyle.Regular);
+        hkClipBox = HkBox(cardHotkeys);
+        lblHkFixCap = Cap(cardHotkeys, "Fix text box", 9F, FontStyle.Regular);
+        hkFixBox = HkBox(cardHotkeys);
+        lblHkRestoreCap = Cap(cardHotkeys, "Restore text box", 9F, FontStyle.Regular);
+        hkRestoreBox = HkBox(cardHotkeys);
+        lblHkStatus = Cap(cardHotkeys, "", 8.25F, FontStyle.Regular);
+        lblHkStatus.AutoSize = false;
+        tips.SetToolTip(swBox, "Registers the fix / restore text-box hotkeys");
+        tips.SetToolTip(hkClipBox, "Click, then press the key combination you want");
+        tips.SetToolTip(hkFixBox, "Click, then press the key combination you want");
+        tips.SetToolTip(hkRestoreBox, "Click, then press the key combination you want");
+        pgSettings.AutoScroll = true;
+
         lblSetNote = Cap(pgSettings, "Settings are stored in %APPDATA%\\NassakhRTL\\settings.ini. Presets remember every option including the paragraph break width.", 8.25F, FontStyle.Regular);
         lblSetNote.AutoSize = false;
 
@@ -3237,7 +3411,69 @@ public class MainForm : Form {
         lblThemeCap.Location = new Point(18, 96);
         swDark.Location = new Point(96, 92);
 
-        lblSetNote.SetBounds(pad, 512, W - pad * 2, 36);
+        cardHotkeys.SetBounds(pad - 6, 506, cw, 236);
+        lblHkCap.Location = new Point(18, 16);
+        swBox.Location = new Point(18, 46);
+        lblHkToggleCap.Location = new Point(72, 49);
+        lblHkNote.SetBounds(18, 78, cw - 44, 48);
+        int rowY = 134;
+        lblHkClipCap.Location = new Point(18, rowY + 4);    hkClipBox.SetBounds(150, rowY, 130, 24);
+        lblHkFixCap.Location = new Point(300, rowY + 4);    hkFixBox.SetBounds(430, rowY, 130, 24);
+        lblHkRestoreCap.Location = new Point(18, rowY + 36); hkRestoreBox.SetBounds(150, rowY + 32, 130, 24);
+        lblHkStatus.SetBounds(18, rowY + 66, cw - 44, 20);
+
+        lblSetNote.SetBounds(pad, 754, W - pad * 2, 36);
+        pgSettings.AutoScrollMinSize = new Size(0, 800);
+    }
+
+    // A read-only box that turns the next key chord pressed into a hotkey
+    // spec. Escape clears nothing; a bare key without Ctrl/Alt/Win is refused
+    // so ordinary typing can never be captured as a global hotkey.
+    TextBox HkBox(Control parent) {
+        TextBox t = new TextBox();
+        t.ReadOnly = true;
+        t.BorderStyle = BorderStyle.FixedSingle;
+        t.TextAlign = HorizontalAlignment.Center;
+        t.Cursor = Cursors.Hand;
+        t.KeyDown += delegate(object s, KeyEventArgs e) {
+            e.SuppressKeyPress = true; e.Handled = true;
+            Keys k = e.KeyCode;
+            if (k == Keys.ControlKey || k == Keys.Menu || k == Keys.ShiftKey || k == Keys.LWin || k == Keys.RWin) return;
+            uint mods = 0;
+            if (e.Control) mods |= BoxFix.ModControl;
+            if (e.Alt) mods |= BoxFix.ModAlt;
+            if (e.Shift) mods |= BoxFix.ModShift;
+            int vk = (int)k;
+            bool letterOrDigit = (vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9');
+            bool fkey = k >= Keys.F1 && k <= Keys.F24;
+            if (!letterOrDigit && !fkey) { lblHkStatus.Text = "Use a letter, digit or F-key with Ctrl and/or Alt."; return; }
+            string spec = BoxFix.Format(mods, vk);
+            uint m2; int v2;
+            if (!BoxFix.TryParse(spec, out m2, out v2)) { lblHkStatus.Text = "Add Ctrl or Alt \u2014 a bare key would hijack normal typing."; return; }
+            t.Text = spec;
+            ApplyHotkeySettings();
+        };
+        parent.Controls.Add(t);
+        return t;
+    }
+
+    void ApplyHotkeySettings() {
+        if (loadingUi) return;
+        hkClipSpec = BoxFix.Normalize(hkClipBox.Text, hkClipSpec);
+        hkFixSpec = BoxFix.Normalize(hkFixBox.Text, hkFixSpec);
+        hkRestoreSpec = BoxFix.Normalize(hkRestoreBox.Text, hkRestoreSpec);
+        boxHotkey = swBox.Checked;
+        RegisterHotkeys();
+        SaveSettings();
+    }
+
+    void ShowHotkeySettings() {
+        loadingUi = true;
+        hkClipBox.Text = hkClipSpec;
+        hkFixBox.Text = hkFixSpec;
+        hkRestoreBox.Text = hkRestoreSpec;
+        swBox.Checked = boxHotkey;
+        loadingUi = false;
     }
 
     // ---------------- right statistics pane ----------------
@@ -3407,6 +3643,7 @@ public class MainForm : Form {
             cWrap.Checked = true;   // fires optChanged -> UpdatePreview, which hides the strip
             ConvertCopy();
         };
+        swBox.CheckedChanged += delegate(object s, EventArgs e) { ApplyHotkeySettings(); };
         bTheme.Click += delegate(object s, EventArgs e) { dark = !dark; swDark.Checked = dark; ApplyTheme(); };
         swDark.CheckedChanged += delegate(object s, EventArgs e) {
             if (loadingUi || dark == swDark.Checked) return;
@@ -3530,7 +3767,7 @@ public class MainForm : Form {
                 if (!trayTipShown) {
                     trayTipShown = true;
                     TrayTip("NassakhRTL is still running",
-                        "Ctrl+Alt+R fixes the clipboard. Ctrl+Alt+F fixes the Affinity text box you are in.", true);
+                        hkClipSpec + " fixes the clipboard." + (hkFix ? " " + hkFixSpec + " fixes the Affinity text box you are in." : ""), true);
                 }
             }
         };
@@ -3972,8 +4209,9 @@ public class MainForm : Form {
 
     void LoadSettings() {
         try {
-            if (!File.Exists(SettingsFile)) return;
+            if (!File.Exists(SettingsFile)) return;   // fresh install: text-box hotkeys stay OFF
             bool watchOn = false;
+            bool sawBoxKey = false;
             foreach (string raw in File.ReadAllLines(SettingsFile)) {
                 int eq = raw.IndexOf('=');
                 if (eq < 1) continue;
@@ -3986,6 +4224,10 @@ public class MainForm : Form {
                 else if (key == "bak") cBak.Checked = val == "1";
                 else if (key == "wrapon") cWrap.Checked = val == "1";
                 else if (key == "wrapw") { try { numWrap.Value = Math.Max(20, Math.Min(200, int.Parse(val))); } catch (Exception) { } }
+                else if (key == "boxhk") { boxHotkey = val == "1"; sawBoxKey = true; }
+                else if (key == "hk.clip") hkClipSpec = BoxFix.Normalize(val, hkClipSpec);
+                else if (key == "hk.fix") hkFixSpec = BoxFix.Normalize(val, hkFixSpec);
+                else if (key == "hk.restore") hkRestoreSpec = BoxFix.Normalize(val, hkRestoreSpec);
                 else if (key == "win") {
                     string[] p = val.Split(',');
                     if (p.Length == 4) {
@@ -4001,6 +4243,9 @@ public class MainForm : Form {
                 else if (key.StartsWith("preset.")) presets[key.Substring(7)] = val;
             }
             RefreshPresets(null);
+            // A settings file with no boxhk key was written by a version where the
+            // text-box hotkeys were always on: keep them on for that user.
+            if (!sawBoxKey) boxHotkey = true;
             if (watchOn && watchDir.Text.Trim().Length > 0 && Directory.Exists(watchDir.Text.Trim()))
                 ToggleWatcher(true);
         } catch (Exception) { }
@@ -4018,6 +4263,10 @@ public class MainForm : Form {
             sb.AppendLine("bak=" + (cBak.Checked ? "1" : "0"));
             sb.AppendLine("wrapon=" + (cWrap.Checked ? "1" : "0"));
             sb.AppendLine("wrapw=" + ((int)numWrap.Value).ToString());
+            sb.AppendLine("boxhk=" + (boxHotkey ? "1" : "0"));
+            sb.AppendLine("hk.clip=" + hkClipSpec);
+            sb.AppendLine("hk.fix=" + hkFixSpec);
+            sb.AppendLine("hk.restore=" + hkRestoreSpec);
             Rectangle r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
             sb.AppendLine("win=" + r.X + "," + r.Y + "," + r.Width + "," + r.Height);
             foreach (KeyValuePair<string, string> kv in presets) sb.AppendLine("preset." + kv.Key + "=" + kv.Value);
@@ -4057,7 +4306,7 @@ public class MainForm : Form {
         foreach (FlatCheck c in new FlatCheck[] { cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap, cBak }) {
             c.Th = th; c.Invalidate();
         }
-        foreach (ToggleSwitch t in new ToggleSwitch[] { swWatch, swLive, swDark }) {
+        foreach (ToggleSwitch t in new ToggleSwitch[] { swWatch, swLive, swDark, swBox }) {
             t.Th = th; t.Invalidate();
         }
         foreach (DonutStat d in new DonutStat[] { dChars, dFiles, dItems }) {
@@ -4065,7 +4314,7 @@ public class MainForm : Form {
         }
         foreach (CardPanel c in new CardPanel[] { cardInput, cardPreview, cardDrop, cardList, cardDiff,
                 cardWatchTop, cardLog, cardHistList, cardHistPrev, cardOpts, cardSpell, cardPrefs,
-                cardStats, cardLive, cardTips }) {
+                cardStats, cardLive, cardTips, cardHotkeys }) {
             c.Th = th; c.BackColor = th.Bg; c.Invalidate();
         }
         foreach (Panel p in new Panel[] { pgQuick, pgFiles, pgWatch, pgHistory, pgSettings }) p.BackColor = th.Bg;
@@ -4073,17 +4322,18 @@ public class MainForm : Form {
         foreach (PreviewPanel p in new PreviewPanel[] { preview, fixedPrev, histFixed }) {
             p.Th = th; p.BackColor = th.Card; p.Invalidate();
         }
-        foreach (TextBox t in new TextBox[] { input, origBox, watchDir, histOrig }) {
+        foreach (TextBox t in new TextBox[] { input, origBox, watchDir, histOrig, hkClipBox, hkFixBox, hkRestoreBox }) {
             t.BackColor = th.Card; t.ForeColor = th.Text;
         }
         watchDir.BackColor = th.InputBg;
         foreach (Label l in new Label[] { lblQuickTitle, lblFilesTitle, lblWatchTitle, lblHistTitle, lblSetTitle,
-                lblStatsTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblLiveCap, lblTipsTitle, lblWatchToggleCap }) {
+                lblStatsTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblHkCap, lblHkToggleCap, lblLiveCap, lblTipsTitle, lblWatchToggleCap }) {
             l.ForeColor = th.Text; l.BackColor = Color.Transparent;
         }
         foreach (Label l in new Label[] { lblQuickSub, lblInput, lblPreview, lblOrig, lblFixed, lblFileNote,
                 lblLogCap, lblWatchNote, lblWatchCap, lblDropHint, lblFile, lblHistNote, lblHistOrig,
                 lblHistFixed, lblSetNote, lblPresetCap, lblThemeCap, lblWrapCap, lblLiveSub, lblTipsBody,
+                lblHkNote, lblHkClipCap, lblHkFixCap, lblHkRestoreCap, lblHkStatus,
                 watchStatus, fileStatus }) {
             l.ForeColor = th.Sub; l.BackColor = Color.Transparent;
         }
@@ -4113,23 +4363,51 @@ public class MainForm : Form {
     // ---------------- global hotkeys ----------------
     protected override void OnHandleCreated(EventArgs e) {
         base.OnHandleCreated(e);
-        try {
-            hkClip = RegisterHotKey(Handle, HK_CLIPBOARD, MOD_CONTROL | MOD_ALT, (int)Keys.R);
-            hkFix = RegisterHotKey(Handle, HK_FIXBOX, MOD_CONTROL | MOD_ALT, (int)Keys.F);
-            hkRestore = RegisterHotKey(Handle, HK_RESTOREBOX, MOD_CONTROL | MOD_ALT, (int)Keys.Z);
-        } catch (Exception) { }
-        string msg = "Ready.";
-        if (hkClip) msg += " Ctrl+Alt+R = fix clipboard.";
-        if (hkFix) msg += " Ctrl+Alt+F = fix the Affinity text box you are in.";
-        Say(msg, true);
+        RegisterHotkeys();
     }
 
-    protected override void OnFormClosed(FormClosedEventArgs e) {
+    void UnregisterHotkeys() {
         try {
             if (hkClip) UnregisterHotKey(Handle, HK_CLIPBOARD);
             if (hkFix) UnregisterHotKey(Handle, HK_FIXBOX);
             if (hkRestore) UnregisterHotKey(Handle, HK_RESTOREBOX);
         } catch (Exception) { }
+        hkClip = hkFix = hkRestore = false;
+    }
+
+    bool RegisterSpec(int id, string spec) {
+        uint mods; int vk;
+        if (!BoxFix.TryParse(spec, out mods, out vk)) return false;
+        try { return RegisterHotKey(Handle, id, (int)mods, vk); } catch (Exception) { return false; }
+    }
+
+    // (Re)registers from the current specs and the opt-in toggle. Safe to call
+    // any time after the handle exists; Settings calls it on every change.
+    void RegisterHotkeys() {
+        if (!IsHandleCreated) return;
+        UnregisterHotkeys();
+        hkClip = RegisterSpec(HK_CLIPBOARD, hkClipSpec);
+        if (boxHotkey) {
+            hkFix = RegisterSpec(HK_FIXBOX, hkFixSpec);
+            hkRestore = RegisterSpec(HK_RESTOREBOX, hkRestoreSpec);
+        }
+        string msg = "Ready.";
+        if (hkClip) msg += " " + hkClipSpec + " = fix clipboard.";
+        if (hkFix) msg += " " + hkFixSpec + " = fix the Affinity text box you are in.";
+        if (!hkClip) msg += " " + hkClipSpec + " could not be registered (another app holds it).";
+        if (boxHotkey && !hkFix) msg += " " + hkFixSpec + " could not be registered.";
+        if (boxHotkey && !hkRestore) msg += " " + hkRestoreSpec + " could not be registered.";
+        Say(msg, hkClip && (!boxHotkey || (hkFix && hkRestore)));
+        if (lblHkStatus != null) {
+            lblHkStatus.Text = boxHotkey
+                ? (hkFix && hkRestore ? "Active: " + hkFixSpec + " fixes, " + hkRestoreSpec + " restores."
+                                      : "Could not register " + (hkFix ? hkRestoreSpec : hkFixSpec) + " \u2014 another application holds it. Pick a different key.")
+                : "Off. The text-box hotkeys are not registered.";
+        }
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e) {
+        UnregisterHotkeys();
         watcher.Stop();
         tray.Visible = false;
         tray.Dispose();
@@ -4165,10 +4443,32 @@ public class MainForm : Form {
     // The in-Affinity fixer: select-all + copy the active text box,
     // convert (or restore), paste back, restore the user's clipboard.
     // Safety: if nothing usable was captured, NOTHING is pasted.
+    // name of the process that owns the foreground window, "" if unknown
+    string ForegroundProcessName() {
+        try {
+            IntPtr fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero) return "";
+            uint pid;
+            GetWindowThreadProcessId(fg, out pid);
+            if (pid == 0) return "";
+            return System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
+        } catch (Exception) { return ""; }
+    }
+
+    // The in-Affinity fixer: select-all + copy the active text box,
+    // convert (or restore), paste back, restore the user's clipboard.
+    // Safety: only when an Affinity app owns the foreground window, and if
+    // nothing usable was captured NOTHING is pasted. The decision logic is
+    // BoxFix.Decide (unit-tested); this method is the keystroke glue and
+    // keeps the timing that has shipped since 2.0.0.
     void FixActiveTextBox(bool restoreMode) {
-        if (!WaitModifiersUp(1500)) { TrayTip("NassakhRTL", "Release Ctrl+Alt first, then try again.", false); return; }
-        string savedClip = null;
-        try { if (Clipboard.ContainsText()) savedClip = Clipboard.GetText(); } catch (Exception) { }
+        string fgName = ForegroundProcessName();
+        if (!BoxFix.IsAffinityProcessName(fgName)) {
+            TrayTip("NassakhRTL", "Affinity isn't the active window" + (fgName.Length > 0 ? " (" + fgName + " is)" : "") + ". Nothing was changed.", false);
+            return;
+        }
+        if (!WaitModifiersUp(1500)) { TrayTip("NassakhRTL", "Release the hotkey first, then try again.", false); return; }
+        string savedClip = ClipboardKeeper.Save();
         try { Clipboard.Clear(); } catch (Exception) { }
 
         try {
@@ -4176,67 +4476,36 @@ public class MainForm : Form {
             Thread.Sleep(80);
             SendKeys.SendWait("^c");
             Thread.Sleep(220);
-        } catch (Exception) { RestoreClip(savedClip); return; }
+        } catch (Exception) { ClipboardKeeper.Restore(savedClip); return; }
 
         string captured = null;
         try { if (Clipboard.ContainsText()) captured = Clipboard.GetText(); } catch (Exception) { }
 
-        if (captured == null || captured.Trim().Length == 0) {
-            RestoreClip(savedClip);
-            TrayTip("NassakhRTL", "No text captured. Click inside a text box (text edit mode) first.", false);
+        BoxFixPlan plan = BoxFix.Decide(captured, restoreMode, CurrentOptions());
+        if (!plan.Proceed) {
+            ClipboardKeeper.Restore(savedClip);
+            TrayTip("NassakhRTL", plan.Reason, false);
             return;
         }
-
-        string outp;
-        bool wrapRisk = false;
-        if (restoreMode) {
-            if (!Engine.LooksConverted(captured)) {
-                RestoreClip(savedClip);
-                TrayTip("NassakhRTL", "This text box does not contain converted text.", false);
-                return;
-            }
-            outp = Engine.Restore(captured);
-        } else {
-            if (Engine.LooksLikeMarkup(captured)) {
-                RestoreClip(savedClip);
-                TrayTip("NassakhRTL", "Captured content is file markup, not text. Nothing was changed.", false);
-                return;
-            }
-            if (Engine.LooksConverted(captured)) {
-                RestoreClip(savedClip);
-                TrayTip("NassakhRTL", "This text box is already converted. Ctrl+Alt+Z restores it.", false);
-                return;
-            }
-            if (!Engine.HasRtl(captured)) {
-                RestoreClip(savedClip);
-                TrayTip("NassakhRTL", "No RTL text found in this box. Nothing was changed.", false);
-                return;
-            }
-            FixResult fr = Engine.Convert(captured, CurrentOptions());
-            outp = fr.Text;
-            statChars += fr.Total;
+        if (!restoreMode) {
+            statChars += plan.Changed;
             try { if (IsHandleCreated) BeginInvoke(new Action(UpdateStats)); } catch (Exception) { }
-            // a text box is one block; Affinity treats \r\n fine, keep as is
-            wrapRisk = WrapRisk(captured);
         }
 
         try {
-            Clipboard.SetText(outp);
+            Clipboard.SetText(plan.Output);
             Thread.Sleep(60);
             SendKeys.SendWait("^v");
             Thread.Sleep(160);
         } catch (Exception) { }
-        RestoreClip(savedClip);
+        ClipboardKeeper.Restore(savedClip);
         System.Media.SystemSounds.Asterisk.Play();
-        if (wrapRisk)
-            TrayTip("NassakhRTL", "Text box fixed, but it has no line breaks. If the frame wraps it, turn on \"Break long paragraphs\" and press Ctrl+Alt+Z then Ctrl+Alt+F.", false);
+        if (restoreMode)
+            TrayTip("NassakhRTL", "\u2713 Text box restored to editable text.", true);
+        else if (plan.WrapRisk)
+            TrayTip("NassakhRTL", "\u2713 Fixed " + plan.Changed + " characters, but the text has no line breaks. If the frame wraps it, turn on \"Break long paragraphs\", press " + hkRestoreSpec + " then " + hkFixSpec + ".", false);
         else
-            TrayTip("NassakhRTL", restoreMode ? "Text box restored to editable text." : "Text box fixed for Affinity.", true);
-    }
-
-    void RestoreClip(string saved) {
-        if (saved == null) return;
-        try { Clipboard.SetText(saved); } catch (Exception) { }
+            TrayTip("NassakhRTL", "\u2713 Fixed " + plan.Changed + " characters in Affinity. " + hkRestoreSpec + " undoes it.", true);
     }
 }
 }

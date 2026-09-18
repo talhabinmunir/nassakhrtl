@@ -31,6 +31,23 @@ Check "50 distinct lines keep their order" (OrderPreserved $fifty $o)
 $mixed = @(($L1 + ' Hello'), ($L2 + ' World 2024'), $L3)
 Check "mixed Arabic + English lines keep their order" (OrderPreserved $mixed $o)
 
+Section "Affinity clipboard breaks (U+2029 / U+2028)"
+# Measured live: Affinity's Ctrl+C on a two-paragraph frame yields "P1<U+2029>P2".
+$ps = $L1 + [char]0x2029 + $L2 + [char]0x2029 + $L3 + [char]0x2029 + $L4
+$rp = [RTLFixer.Engine]::Convert($ps, $o)
+$pl = Lines $rp.Text
+Check "U+2029-separated paragraphs come out as 4 lines" ($pl.Count -eq 4)
+$okOrder = $true
+$want = @($L1, $L2, $L3, $L4)
+for ($i = 0; $i -lt 4; $i++) { if ([RTLFixer.Engine]::Restore($pl[$i]).Trim() -ne $want[$i]) { $okOrder = $false } }
+Check "and in the original paragraph order (not reversed across the separator)" $okOrder
+Check "output uses \r\n, which Affinity pastes back as paragraph breaks" ($rp.Text.Contains("`r`n") -and -not $rp.Text.Contains([string][char]0x2029))
+$ls = $L1 + [char]0x2028 + $L2
+Check "U+2028 line separator is treated the same" ((Lines ([RTLFixer.Engine]::Convert($ls, $o).Text)).Count -eq 2)
+$conv2 = [RTLFixer.Engine]::Convert($L1 + "`n" + $L2, $o).Text.Replace("`r`n", [string][char]0x2029)
+Check "Restore accepts U+2029 between converted paragraphs" ([RTLFixer.Engine]::Restore($conv2) -eq ($L1 + "`r`n" + $L2))
+Check "IsUnbrokenParagraph sees U+2029 as a break" (-not [RTLFixer.Engine]::IsUnbrokenParagraph(($L2 + ' ') * 20 + [char]0x2029 + $L1, 70))
+
 Section "Paragraph wrapping (WrapWidth)"
 $words = @(); for ($i = 1; $i -le 20; $i++) { $words += ($L2 + [string]$i) }
 $para = ($words -join ' ')
