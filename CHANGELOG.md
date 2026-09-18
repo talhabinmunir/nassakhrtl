@@ -51,12 +51,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   migration against fixture INI files. The form reads
   `NASSAKHRTL_SETTINGS_DIR` when set so tests never touch `%APPDATA%`.
 
-### Notes
+### If you upgraded from 2.1.0 — check one setting
 
-- If your settings were already clobbered by 2.1.0 (`wrapon=0` written
-  without you turning it off), the file cannot be told apart from a
-  deliberate choice; re-tick the option once, or use the new warning strip's
-  button. Fresh installs and 2.0.2 files with `wrapon=1` were never affected.
+**If you installed 2.1.0 over any earlier version, open Quick Fix and make
+sure "Break long paragraphs every N chars" is ticked.** 2.1.0 could silently
+turn this option off on its first launch after upgrading, without you touching
+it. That was a bug, not something you did. 2.1.1 fixes the cause, but a
+settings file that 2.1.0 already changed cannot be told apart from one where
+you switched the option off yourself, so it does not self-repair: the box may
+still show as off until you tick it once. After that it stays on. If you paste
+a long paragraph with the option off, 2.1.1 now warns you and offers to turn it
+on. Fresh installs, and upgrades from 2.0.2 with the option on, were never
+affected.
+
+### Notes
 - Known limit, now covered by a test: N must be narrower than the Affinity
   frame. With N=70 in a 40-character frame each line re-wraps and flips;
   N=35 in the same frame reads correctly. Lower N for narrow frames.
