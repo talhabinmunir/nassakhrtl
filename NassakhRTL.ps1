@@ -1,5 +1,5 @@
 # =====================================================================
-#  NassakhRTL 2.1  -  RTL text fixer for Affinity apps (Windows)
+#  NassakhRTL 2.1.1  -  RTL text fixer for Affinity apps (Windows)
 #  Arabic - Persian - Urdu - Hebrew
 #
 #  Start with:  NassakhRTL.bat  (same folder)  or build NassakhRTL.exe
@@ -1022,10 +1022,16 @@ public class FixOptions {
     // pasted into Affinity re-wraps the reversed string and the line
     // order comes out bottom-to-top.
     public int WrapWidth = 0;
+    // True when this instance actually carries a wrap decision. FromBits on a
+    // pre-2.1 string ("1100000", no ":N") leaves it false, and SetOptions must
+    // then leave the wrap checkbox alone. 2.1.0 treated that "unknown" as
+    // "off", which silently disabled the line-order safety net for anyone
+    // upgrading from a 2.0.0/2.0.1 settings file or applying an old preset.
+    public bool HasWrap = false;
 
     // Serialize to/from a 7-char bit string for settings/presets.
-    // WrapWidth is appended as ":N" so presets round-trip it; the suffix is
-    // optional, so 2.0.x settings files with a bare 7-char string still load.
+    // WrapWidth is ALWAYS appended as ":N" (N = 0 means off) so a preset can
+    // record "off" and be told apart from a legacy string that never knew.
     public string ToBits() {
         char[] b = new char[7];
         b[0] = WesternDigits ? '1' : '0';
@@ -1035,9 +1041,7 @@ public class FixOptions {
         b[4] = PunctToLatin ? '1' : '0';
         b[5] = NormalizeAlef ? '1' : '0';
         b[6] = NormalizeYaTa ? '1' : '0';
-        string s = new string(b);
-        if (WrapWidth > 0) s += ":" + WrapWidth.ToString();
-        return s;
+        return new string(b) + ":" + (WrapWidth > 0 ? WrapWidth : 0).ToString();
     }
     public static FixOptions FromBits(string s) {
         FixOptions o = new FixOptions();
@@ -1052,7 +1056,10 @@ public class FixOptions {
         int colon = s.IndexOf(':');
         if (colon >= 7 && colon + 1 < s.Length) {
             int w;
-            if (int.TryParse(s.Substring(colon + 1), out w) && w >= 20 && w <= 200) o.WrapWidth = w;
+            if (int.TryParse(s.Substring(colon + 1), out w) && (w == 0 || (w >= 20 && w <= 200))) {
+                o.WrapWidth = w;
+                o.HasWrap = true;
+            }
         }
         return o;
     }
@@ -1208,6 +1215,21 @@ public static class Engine {
     // whole-file markup must never travel through the plain-text path:
     // converting raw XML/SVG as text mangles it and pasting it into
     // Affinity puts literal markup on the canvas
+    // The silent failure mode: one logical line with no hard breaks, longer
+    // than the frame can hold. Converted, it is one long visual-order string;
+    // when Affinity wraps it, the top display line gets the reversed END of
+    // the paragraph and the whole thing reads bottom-to-top. The app's own
+    // preview cannot show this because it never wraps. Threshold is the
+    // configured break width - shorter text fits one line in any frame that
+    // would hold N characters.
+    public static bool IsUnbrokenParagraph(string s, int threshold) {
+        if (s == null) return false;
+        string t = s.Trim();
+        if (t.IndexOf('\n') >= 0 || t.IndexOf('\r') >= 0) return false;
+        if (t.Length <= threshold) return false;
+        return HasRtl(t);
+    }
+
     public static bool LooksLikeMarkup(string s) {
         if (s == null) return false;
         string t = s.TrimStart();
@@ -1467,7 +1489,7 @@ public static class Engine {
 public class Theme {
     public Color Bg, Panel, Text, Sub, Border, Accent, AccentText, InputBg, PreviewBg, Good, Bad;
     public Color Card, Sidebar, AccentSoft, Shadow, Track;
-    public Color AccentFill, AccentInk, AccentHover, AccentPress;
+    public Color AccentFill, AccentInk, AccentHover, AccentPress, Warn;
     public bool IsDark = false;
 
     public static Theme Light() {
@@ -1491,6 +1513,7 @@ public class Theme {
         t.PreviewBg = Color.FromArgb(250, 252, 252);
         t.Good = Color.FromArgb(46, 125, 79);           // #2E7D4F
         t.Bad = Color.FromArgb(198, 40, 40);            // #C62828
+        t.Warn = Color.FromArgb(138, 90, 0);            // #8A5A00 amber, 5.6:1 on page bg
         t.Shadow = Color.FromArgb(18, 0, 0, 0);
         t.Track = Color.FromArgb(230, 237, 236);
         return t;
@@ -1517,6 +1540,7 @@ public class Theme {
         t.PreviewBg = Color.FromArgb(23, 31, 30);
         t.Good = Color.FromArgb(91, 214, 140);          // #5BD68C
         t.Bad = Color.FromArgb(255, 138, 133);          // #FF8A85
+        t.Warn = Color.FromArgb(242, 179, 91);          // #F2B35B
         t.Shadow = Color.FromArgb(90, 0, 0, 0);
         t.Track = Color.FromArgb(42, 55, 53);
         return t;
@@ -2309,7 +2333,7 @@ public class RtlFile {
 
     public string BuildReport(FixOptions o) {
         StringBuilder sb = new StringBuilder();
-        sb.AppendLine("NassakhRTL 2.1 - Fix Report");
+        sb.AppendLine("NassakhRTL 2.1.1 - Fix Report");
         sb.AppendLine("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         sb.AppendLine("File: " + SourcePath);
         sb.AppendLine("Options: " + o.ToBits());
@@ -2479,7 +2503,8 @@ public class MainForm : Form {
     // ---- quick fix page ----
     CardPanel cardInput, cardPreview;
     TextBox input;
-    Label lblQuickTitle, lblQuickSub, lblInput, lblPreview, inspector, status;
+    Label lblQuickTitle, lblQuickSub, lblInput, lblPreview, inspector, status, warnLbl;
+    PillButton bWarnWrap;
     PreviewPanel preview;
     FlatCheck cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap;
     NumericUpDown numWrap;
@@ -2526,12 +2551,20 @@ public class MainForm : Form {
     Label lblSetTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblThemeCap, lblSetNote;
     ToggleSwitch swDark;
 
-    string SettingsDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NassakhRTL"); } }
+    // NASSAKHRTL_SETTINGS_DIR lets the test suite point the form at fixture
+    // settings files instead of the user's real %APPDATA% copy.
+    string SettingsDir {
+        get {
+            string o = Environment.GetEnvironmentVariable("NASSAKHRTL_SETTINGS_DIR");
+            if (!string.IsNullOrEmpty(o)) return o;
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NassakhRTL");
+        }
+    }
     string SettingsFile { get { return Path.Combine(SettingsDir, "settings.ini"); } }
 
     public MainForm() {
         th = Theme.Light();
-        Text = "NassakhRTL 2.1";
+        Text = "NassakhRTL 2.1.1";
         Icon = AssetLoader.AppIcon();
         Font = Ui.F(9F);
         ClientSize = new Size(1120, 736);
@@ -2600,7 +2633,7 @@ public class MainForm : Form {
         header.Controls.Add(logo);
 
         lblVersionPill = new Label();
-        lblVersionPill.Text = "v2.1";
+        lblVersionPill.Text = "v2.1.1";
         lblVersionPill.AutoSize = false;
         lblVersionPill.Size = new Size(44, 20);
         lblVersionPill.Location = new Point(242, 21);
@@ -2786,6 +2819,18 @@ public class MainForm : Form {
         status.AutoSize = false;
         status.AutoEllipsis = true;
 
+        // non-blocking soft-wrap warning: shown only when wrapping is off and
+        // the input is one long unbroken paragraph. Convert still works; the
+        // button turns wrapping on and converts in one click.
+        warnLbl = Cap(pgQuick, "\u26A0 No line breaks \u2014 Affinity will wrap this itself and the lines will come out bottom-to-top.", 8.75F, FontStyle.Bold);
+        warnLbl.AutoSize = false;
+        warnLbl.AutoEllipsis = true;
+        warnLbl.Visible = false;
+        bWarnWrap = QBtn(pgQuick, "Enable wrapping and convert", PillButton.Secondary, 214);
+        bWarnWrap.Height = 30;
+        bWarnWrap.Visible = false;
+        tips.SetToolTip(bWarnWrap, "Turns on \"Break long paragraphs\" and converts");
+
         debounce = new System.Windows.Forms.Timer();
         debounce.Interval = 160;
     }
@@ -2845,10 +2890,17 @@ public class MainForm : Form {
         int optH = (optRow1 + optRow2) * 24 + (optRow1 + optRow2 - 1) * 8;
         int btnRows = FlowRows(new int[] { bConvert.Width, bClip.Width, bRestore.Width, bClear.Width }, avail, 12);
         int btnH = btnRows * 38 + (btnRows - 1) * 8;
+        int warnH = warnLbl.Visible ? 40 : 0;
 
         int statusY = H - 34;
         int btnY = statusY - 10 - btnH;
-        int optsY = btnY - 14 - optH;
+        int warnY = btnY - 6 - warnH;
+        int optsY = (warnH > 0 ? warnY : btnY) - 14 + (warnH > 0 ? 4 : 0) - optH;
+        if (warnH > 0) {
+            int bw = bWarnWrap.Width;
+            bWarnWrap.Location = new Point(pad + avail - bw, warnY + 2);
+            warnLbl.SetBounds(pad, warnY + 8, Math.Max(60, avail - bw - 12), 20);
+        }
 
         int topY = 74;
         int inputH = Math.Max(110, (optsY - topY - 14) * 55 / 100);
@@ -3281,7 +3333,7 @@ public class MainForm : Form {
     void BuildTray() {
         tray = new NotifyIcon();
         tray.Icon = AssetLoader.AppIcon();
-        tray.Text = "NassakhRTL 2.1";
+        tray.Text = "NassakhRTL 2.1.1";
         tray.Visible = true;
         ContextMenuStrip m = new ContextMenuStrip();
         m.Items.Add("Quick Fix (open window)", null, delegate(object s, EventArgs e) { RestoreFromTray(); ShowPage("quick"); });
@@ -3340,6 +3392,10 @@ public class MainForm : Form {
         bClip.Click += delegate(object s, EventArgs e) { FixClipboard(); };
         bRestore.Click += delegate(object s, EventArgs e) { RestoreClipboard(); };
         bClear.Click += delegate(object s, EventArgs e) { input.Text = ""; UpdatePreview(); };
+        bWarnWrap.Click += delegate(object s, EventArgs e) {
+            cWrap.Checked = true;   // fires optChanged -> UpdatePreview, which hides the strip
+            ConvertCopy();
+        };
         bTheme.Click += delegate(object s, EventArgs e) { dark = !dark; swDark.Checked = dark; ApplyTheme(); };
         swDark.CheckedChanged += delegate(object s, EventArgs e) {
             if (loadingUi || dark == swDark.Checked) return;
@@ -3550,6 +3606,7 @@ public class MainForm : Form {
         o.NormalizeAlef = cAlef.Checked;
         o.NormalizeYaTa = cYaTa.Checked;
         o.WrapWidth = cWrap.Checked ? (int)numWrap.Value : 0;
+        o.HasWrap = true;
         return o;
     }
 
@@ -3562,26 +3619,47 @@ public class MainForm : Form {
         cPunct.Checked = o.PunctToLatin;
         cAlef.Checked = o.NormalizeAlef;
         cYaTa.Checked = o.NormalizeYaTa;
-        // wrap settings round-trip too, so a preset restores exactly what it saved
-        cWrap.Checked = o.WrapWidth > 0;
-        if (o.WrapWidth > 0)
-            numWrap.Value = Math.Max(numWrap.Minimum, Math.Min(numWrap.Maximum, (decimal)o.WrapWidth));
+        // Wrap settings round-trip only when the source actually carried them.
+        // A pre-2.1 "opts=" line or preset has no ":N" suffix: leave the
+        // checkbox at its default (on) instead of reading "unknown" as "off".
+        if (o.HasWrap) {
+            cWrap.Checked = o.WrapWidth > 0;
+            if (o.WrapWidth > 0)
+                numWrap.Value = Math.Max(numWrap.Minimum, Math.Min(numWrap.Maximum, (decimal)o.WrapWidth));
+        }
         loadingUi = false;
         UpdatePreview();
     }
 
+    // wrap is off and the box holds one unbroken paragraph longer than N
+    bool WrapRisk(string text) {
+        return !cWrap.Checked && Engine.IsUnbrokenParagraph(text, (int)numWrap.Value);
+    }
+
+    void ShowWrapWarning(bool on) {
+        if (warnLbl.Visible == on) return;
+        warnLbl.Visible = on;
+        bWarnWrap.Visible = on;
+        LayoutQuick();
+    }
+
+    const string WrapAdvice = " \u2014 no line breaks: enable \"Break long paragraphs\" or the lines will reverse when Affinity wraps them";
+
     void UpdatePreview() {
         UpdateStatusBar();
-        if (input.Text.Length == 0) { preview.SetText(""); lastConverted = ""; Say("", true); return; }
+        if (input.Text.Length == 0) { preview.SetText(""); lastConverted = ""; ShowWrapWarning(false); Say("", true); return; }
         if (Engine.LooksLikeMarkup(input.Text)) {
-            preview.SetText(""); lastConverted = "";
+            preview.SetText(""); lastConverted = ""; ShowWrapWarning(false);
             Say("This looks like SVG/XML markup. Use the Files page so only the text content is fixed.", false);
             return;
         }
         FixResult r = Engine.Convert(input.Text, CurrentOptions());
         lastConverted = r.Text;
         preview.SetText(r.Text);
-        Say("\u2713 " + r.Summary, true);
+        bool risk = WrapRisk(input.Text);
+        ShowWrapWarning(risk);
+        if (risk) Say("\u26a0 " + r.Summary + WrapAdvice, false);
+        else Say("\u2713 " + r.Summary, true);
     }
 
     void ConvertCopy() {
@@ -3597,7 +3675,8 @@ public class MainForm : Form {
             Clipboard.SetText(r.Text);
             PushHistory(input.Text, r.Text);
             CountChars(r);
-            Say("\u2713 " + r.Summary + " \u2014 copied, paste into Affinity (Ctrl+V)", true);
+            if (WrapRisk(input.Text)) Say("\u26a0 " + r.Summary + " \u2014 copied, but" + WrapAdvice, false);
+            else Say("\u2713 " + r.Summary + " \u2014 copied, paste into Affinity (Ctrl+V)", true);
         } catch (Exception ex) { Say("Error: " + ex.Message, false); }
     }
 
@@ -3618,7 +3697,12 @@ public class MainForm : Form {
             PushHistory(t, r.Text);
             CountChars(r);
             System.Media.SystemSounds.Asterisk.Play();
-            Say("\u2713 " + r.Summary + " \u2014 clipboard converted, paste into Affinity", true);
+            if (WrapRisk(t)) {
+                Say("\u26a0 " + r.Summary + " \u2014 clipboard converted, but" + WrapAdvice, false);
+                TrayTip("NassakhRTL", "Converted, but this paragraph has no line breaks. Turn on \"Break long paragraphs\" or it will reverse when Affinity wraps it.", false);
+            } else {
+                Say("\u2713 " + r.Summary + " \u2014 clipboard converted, paste into Affinity", true);
+            }
         } catch (Exception ex) { Say("Error: " + ex.Message, false); }
     }
 
@@ -3717,7 +3801,7 @@ public class MainForm : Form {
             d.FileName = "nassakh-record.json";
             if (d.ShowDialog(this) == DialogResult.OK) {
                 try {
-                    string json = "{\n  \"app\": \"NassakhRTL 2.1\",\n  \"timestamp\": \""
+                    string json = "{\n  \"app\": \"NassakhRTL 2.1.1\",\n  \"timestamp\": \""
                         + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\",\n  \"options\": \""
                         + CurrentOptions().ToBits() + "\",\n  \"original\": \"" + JsonEsc(input.Text)
                         + "\",\n  \"converted\": \"" + JsonEsc(lastConverted) + "\"\n}\n";
@@ -3943,7 +4027,7 @@ public class MainForm : Form {
 
         lblVersionPill.BackColor = th.AccentSoft;
         lblVersionPill.ForeColor = th.AccentInk;
-        lblSideVer.Text = "Version 2.1  \u00B7  Premium";
+        lblSideVer.Text = "Version 2.1.1  \u00B7  Premium";
         lblSideVer.ForeColor = th.Sub;
         lblSideVer.BackColor = th.Sidebar;
         lblStatusLeft.ForeColor = th.Sub;
@@ -3953,7 +4037,7 @@ public class MainForm : Form {
 
         foreach (PillButton b in new PillButton[] { bImport, bExport, bTheme, bAbout, bConvert, bClip,
                 bRestore, bClear, bOpenFile, bSaveAs, bOverwrite, bReport, bCheckAll, bCheckNone,
-                bCopyText, bBrowse, bSavePreset, bDelPreset, bHistUse, bHistCopy, bHistClear }) {
+                bCopyText, bBrowse, bSavePreset, bDelPreset, bHistUse, bHistCopy, bHistClear, bWarnWrap }) {
             b.Th = th; b.Invalidate();
         }
         foreach (NavItem n in new NavItem[] { navQuick, navFiles, navWatch, navHistory, navSettings }) {
@@ -4000,6 +4084,8 @@ public class MainForm : Form {
         cmbPreset.BackColor = th.InputBg; cmbPreset.ForeColor = th.Text;
         numWrap.BackColor = th.InputBg; numWrap.ForeColor = th.Text;
         status.ForeColor = th.Good;
+        warnLbl.ForeColor = th.Warn;
+        warnLbl.BackColor = Color.Transparent;
         status.BackColor = Color.Transparent;
         swDark.Checked = dark;
         UpdateStats();
@@ -4091,6 +4177,7 @@ public class MainForm : Form {
         }
 
         string outp;
+        bool wrapRisk = false;
         if (restoreMode) {
             if (!Engine.LooksConverted(captured)) {
                 RestoreClip(savedClip);
@@ -4119,6 +4206,7 @@ public class MainForm : Form {
             statChars += fr.Total;
             try { if (IsHandleCreated) BeginInvoke(new Action(UpdateStats)); } catch (Exception) { }
             // a text box is one block; Affinity treats \r\n fine, keep as is
+            wrapRisk = WrapRisk(captured);
         }
 
         try {
@@ -4129,7 +4217,10 @@ public class MainForm : Form {
         } catch (Exception) { }
         RestoreClip(savedClip);
         System.Media.SystemSounds.Asterisk.Play();
-        TrayTip("NassakhRTL", restoreMode ? "Text box restored to editable text." : "Text box fixed for Affinity.", true);
+        if (wrapRisk)
+            TrayTip("NassakhRTL", "Text box fixed, but it has no line breaks. If the frame wraps it, turn on \"Break long paragraphs\" and press Ctrl+Alt+Z then Ctrl+Alt+F.", false);
+        else
+            TrayTip("NassakhRTL", restoreMode ? "Text box restored to editable text." : "Text box fixed for Affinity.", true);
     }
 
     void RestoreClip(string saved) {
