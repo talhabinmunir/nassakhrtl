@@ -125,7 +125,15 @@ try {
     Step "Build NassakhRTL.exe with ps2exe"
     if (-not (Get-Module -ListAvailable -Name ps2exe)) { Fail "ps2exe module not installed. Run: Install-Module -Name ps2exe -Scope CurrentUser -Force" }
     Import-Module ps2exe
-    if (Test-Path $exe) { Remove-Item $exe -Force }
+    # A running copy locks the exe: refuse with a clear message rather than an
+    # access-denied stack trace from Remove-Item. (The smoke test in step 7
+    # needs no instance running anyway.)
+    $inUse = Get-Process -Name NassakhRTL -ErrorAction SilentlyContinue
+    if ($inUse) { Fail "NassakhRTL.exe is running (PID $($inUse.Id -join ', ')) and locks the file. Close it, then re-run." }
+    if (Test-Path $exe) {
+        try { Remove-Item $exe -Force -ErrorAction Stop }
+        catch { Fail "cannot replace NassakhRTL.exe: $($_.Exception.Message)" }
+    }
     Invoke-ps2exe -InputFile $ps1 -OutputFile $exe -IconFile $ico -NoConsole -STA `
         -title 'NassakhRTL' -product 'NassakhRTL' -description 'RTL Text Fixer for Affinity' `
         -company 'Talha bin Munir' -version $ver4 | Out-Null
