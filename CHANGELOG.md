@@ -6,6 +6,71 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.1] — 2026-09-18
+
+### Fixed
+
+- **"Break long paragraphs" was silently turned off when upgrading from a
+  2.0.0/2.0.1 settings file, and when applying any preset saved before 2.1.**
+  A 2.1 regression. The preset round-trip added in 2.1 made `SetOptions` read
+  `WrapWidth == 0` as "off", but a pre-2.1 `opts=` string or preset has no `:N`
+  suffix at all, so "unknown" became "off". The INI reader only re-enabled it
+  if a `wrapon` key existed, and the wrong state was then written back as
+  `wrapon=0` on exit, making it permanent. Confirmed by constructing the real
+  `MainForm` against fixture settings files: a fresh install was fine, a
+  2.0.0/2.0.1 file lost the option.
+
+  `FixOptions` now carries `HasWrap`: set only when the serialised string has
+  the `:N` suffix, and `SetOptions` leaves the checkbox alone otherwise.
+  `ToBits` always writes the suffix (`:0` for off), so a preset that was
+  deliberately saved with wrapping off can be told apart from one that
+  predates the option. Existing settings files need no migration: on the next
+  load the legacy `opts=` line no longer clobbers the default, and the file
+  is re-saved in the new form.
+
+  The engine itself was never at fault - hard line breaks always came out in
+  order. What the user sees is Affinity wrapping one long visual-order line
+  and putting the end of the paragraph on top; that is exactly what the
+  option prevents, which is why it must not switch itself off.
+
+### Added
+
+- **Soft-wrap warning.** When wrapping is off and the input is one unbroken
+  paragraph longer than N characters, the Quick Fix page shows a non-blocking
+  amber strip: "No line breaks - Affinity will wrap this itself and the lines
+  will come out bottom-to-top", with an **Enable wrapping and convert** button.
+  Convert + Copy still works as before; the warning is also reflected in the
+  status line, and Ctrl+Alt+R / Ctrl+Alt+F raise a tray notice. The app's own
+  preview cannot show this failure because it never wraps, so the user was
+  otherwise the last line of defence. The user's explicit preference is
+  never overridden.
+- **`tests/`** - a permanent regression suite runnable with
+  `tests\run-all.ps1`: engine line order, options and legacy round-trip, SVG
+  round-trip, the exact soft-wrap repro paragraph in both checkbox states
+  (with a narrow-frame emulation of Affinity's own wrapping), and settings
+  migration against fixture INI files. The form reads
+  `NASSAKHRTL_SETTINGS_DIR` when set so tests never touch `%APPDATA%`.
+
+### If you upgraded from 2.1.0 — check one setting
+
+**If you installed 2.1.0 over any earlier version, open Quick Fix and make
+sure "Break long paragraphs every N chars" is ticked.** 2.1.0 could silently
+turn this option off on its first launch after upgrading, without you touching
+it. That was a bug, not something you did. 2.1.1 fixes the cause, but a
+settings file that 2.1.0 already changed cannot be told apart from one where
+you switched the option off yourself, so it does not self-repair: the box may
+still show as off until you tick it once. After that it stays on. If you paste
+a long paragraph with the option off, 2.1.1 now warns you and offers to turn it
+on. Fresh installs, and upgrades from 2.0.2 with the option on, were never
+affected.
+
+### Notes
+- Known limit, now covered by a test: N must be narrower than the Affinity
+  frame. With N=70 in a 40-character frame each line re-wraps and flips;
+  N=35 in the same frame reads correctly. Lower N for narrow frames.
+
+---
+
 ## [2.1] — 2026-08-04
 
 ### Changed

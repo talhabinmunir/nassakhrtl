@@ -66,7 +66,7 @@ Press **Ctrl + Alt + Z** while in the converted text box. NassakhRTL restores it
 
 **Long paragraphs (multi-line text):**
 
-A paragraph that wraps across several lines needs hard line breaks before conversion — otherwise Affinity re-wraps the converted text and the lines come out in reverse order (last sentence on top). NassakhRTL handles this automatically: the option **"Break long paragraphs into lines of [70] chars"** is on by default.
+A paragraph that wraps across several lines needs hard line breaks before conversion — otherwise Affinity re-wraps the converted text and the lines come out in reverse order (last sentence on top). NassakhRTL handles this automatically: the option **"Break long paragraphs every [70] chars"** is on by default. If it is off and you paste a paragraph with no line breaks, Quick Fix shows an amber warning with an **Enable wrapping and convert** button — the app's own preview cannot show the reversal, because it never wraps.
 
 For best results with paragraphs:
 1. Set the Affinity paragraph alignment to **Right** (converted Arabic lines should align right).
