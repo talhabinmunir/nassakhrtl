@@ -1,6 +1,6 @@
 # NassakhRTL — Instructions
 
-Full usage guide for **NassakhRTL 2.0**
+Full usage guide for **NassakhRTL**
 
 ---
 

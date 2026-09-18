@@ -44,6 +44,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   preview cannot show this failure because it never wraps, so the user was
   otherwise the last line of defence. The user's explicit preference is
   never overridden.
+- **`release.ps1` + `RELEASING.md`** - a release gate that refuses to ship a
+  stale or mismatched exe: repo clean and on `main`, tests green, build with
+  ps2exe, verify the exe's file version and embedded script match
+  `App.Version`, clean-process smoke test proving the hotkeys register, then
+  `-Publish` tags and creates the GitHub Release. Motivated by two PRs in a
+  row where the binary had to be rebuilt by hand.
+- **`App.Version`** is now the only place the version number is written in
+  the source. Eleven hand-edited copies (title bar, tray, sidebar, version
+  pill, fix report, JSON export, About dialog, README badge and build
+  command, changelog) were reduced to one constant plus two doc lines that
+  the release gate checks. The About dialog had been reporting 2.0 since
+  2.0.1.
 - **`tests/`** - a permanent regression suite runnable with
   `tests\run-all.ps1`: engine line order, options and legacy round-trip, SVG
   round-trip, the exact soft-wrap repro paragraph in both checkbox states
