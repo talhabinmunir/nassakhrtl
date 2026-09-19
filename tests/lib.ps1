@@ -25,8 +25,10 @@ function Import-NassakhEngine {
     $start = $all.IndexOf("`$source = @'")
     $hdr = $all.IndexOf("`n", $start) + 1
     $end = $all.IndexOf("`n'@", $hdr)
+    # keep in step with the -ReferencedAssemblies list at the foot of
+    # NassakhRTL.ps1, or the suite compiles against a different surface
     Add-Type -TypeDefinition $all.Substring($hdr, $end - $hdr) `
-        -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing', 'System.Core', 'System.Xml')
+        -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing', 'System.Core', 'System.Xml', 'System.Security')
 }
 
 function Check([string]$name, [bool]$cond) {
