@@ -201,10 +201,11 @@ The two most-used options sit under the Quick Fix input; the rest live on the **
 | **Ctrl + Alt + F** | Only while Affinity is the active window; needs the Settings toggle | Fix the Affinity text box you are in |
 | **Ctrl + Alt + Z** | Only while Affinity is the active window; needs the Settings toggle | Restore the Affinity text box to editable text |
 | **Ctrl + Alt + R** | Anywhere (global) | Fix the clipboard |
+| **Ctrl + Alt + T** | Only while Affinity is the active window; needs the tashkeel toggle | Add Arabic diacritics (tashkeel) - sends text online |
 | **Ctrl + Enter** | NassakhRTL window | Convert + Copy |
 | **Ctrl + Shift + V** | NassakhRTL window | Paste clipboard and immediately convert |
 
-All three global hotkeys can be changed in Settings → Hotkeys: click the box and press the new chord. A bare key without Ctrl or Alt is refused so normal typing can never be captured.
+All four global hotkeys can be changed in Settings → Hotkeys: click the box and press the new chord. A bare key without Ctrl or Alt is refused so normal typing can never be captured.
 
 **If Ctrl+Alt+F does not work:**
 
@@ -213,6 +214,27 @@ Check the toggle in Settings → Hotkeys first. If it is on and the card says an
 **Timing note for Ctrl+Alt+F:**
 
 Release Ctrl, Alt, and F fully before expecting the fix to run. NassakhRTL waits for the modifier keys to be released before sending any simulated keys, to prevent the hotkey chord from interfering with the text selection.
+
+---
+
+## 9b. Arabic diacritics (tashkeel) - optional, online
+
+**Off by default. This is the only NassakhRTL feature that sends your text off your computer.**
+
+Turn it on in Settings, under *Arabic diacritics (tashkeel)*. A consent dialog explains exactly what happens; the feature stays off unless you accept it.
+
+**What it does:** press **Ctrl + Alt + T** while an Affinity text box is focused. The Arabic in that box is sent to the `MohamedRashad/arabic-auto-tashkeel` Space on Hugging Face, which predicts its harakat, and the diacritized text is pasted back.
+
+**Things worth knowing before you use it:**
+
+- **It is a prediction, not a correction.** Unlike the RTL fix, which has one right answer, diacritization is a guess. Wrong harakat change *meaning*. Always read the result.
+- **Your text leaves the machine.** Do not use it on confidential material. There is no offline option in this build.
+- **Nothing is logged.** The text sent and received is held in memory only for the one operation.
+- **Undo is normal.** One Ctrl+Z in Affinity reverts it, like any paste.
+- **Your own structure is kept.** The service returns Arabic letters only, with line breaks, digits, Latin and punctuation stripped. NassakhRTL puts the returned harakat back onto *your* text, so your line breaks and numbers survive. If they cannot be matched up, nothing is changed.
+- **If it fails** - no connection, a slow cold start, a service error - you get "Couldn't reach the diacritization service" and your text is left exactly as it was. It never silently substitutes another method.
+
+**Hugging Face token (optional):** paste one into Settings and press *Save token* to avoid the shared anonymous queue. It is encrypted with Windows DPAPI for your user account; only the encrypted form is written to `settings.ini`, and a settings file copied to another machine cannot decrypt it.
 
 ---
 

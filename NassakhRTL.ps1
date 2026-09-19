@@ -1007,6 +1007,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using System.Net;
+using System.Diagnostics;
+using System.Security.Cryptography;
 
 // ------------------------------------------------------------------ //
 //  Conversion options + result
@@ -1017,7 +1020,7 @@ using System.Runtime.InteropServices;
 // the About dialog read it from here. Nothing else in the repo may
 // hard-code the number; release.ps1 checks README and CHANGELOG against it.
 public static class App {
-    public const string Version = "2.2.0";
+    public const string Version = "2.3.0";
 }
 
 public class FixOptions {
@@ -1626,6 +1629,354 @@ public static class ClipboardKeeper {
     public static void Restore(string saved) {
         if (saved == null) return;
         try { Clipboard.SetText(saved); } catch (Exception) { }
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Tashkeel (Arabic diacritization) - Phase 1, online engine only.
+//
+//  Unlike the RTL fix this is probabilistic: the same input can yield
+//  different harakat, and wrong harakat change MEANING, not just shape.
+//  So it is off by default, needs explicit consent, has its own hotkey,
+//  and never silently falls back to anything.
+// ------------------------------------------------------------------ //
+
+// Raised for every failure path. Message is user-facing (goes in the toast).
+public class TashkeelException : Exception {
+    public TashkeelException(string message) : base(message) { }
+}
+
+// The seam Phase 2 plugs an offline engine into. Call sites must depend on
+// THIS, never on a concrete engine.
+public interface ITashkeelEngine {
+    // Returns the diacritized form of 'text'. Throws TashkeelException on any
+    // failure (timeout, transport, empty or unusable response).
+    string Diacritize(string text);
+}
+
+public static class Tashkeel {
+    // Letters the service keeps: Arabic block minus tatweel and the marks.
+    public static bool IsArabicLetter(char c) {
+        return (c >= '\u0621' && c <= '\u063A') || (c >= '\u0641' && c <= '\u064A');
+    }
+
+    // Combining marks the service adds (harakat, shadda, sukun, dagger alef).
+    public static bool IsHaraka(char c) {
+        return (c >= '\u064B' && c <= '\u0652') || c == '\u0670'
+            || (c >= '\u0653' && c <= '\u0655') || c == '\u0656' || c == '\u0657'
+            || c == '\u0658' || c == '\u0659' || c == '\u065A' || c == '\u065B'
+            || c == '\u065C' || c == '\u065D' || c == '\u065E' || c == '\u065F';
+    }
+
+    public static string StripHarakat(string s) {
+        if (s == null) return null;
+        StringBuilder sb = new StringBuilder(s.Length);
+        foreach (char c in s) if (!IsHaraka(c)) sb.Append(c);
+        return sb.ToString();
+    }
+
+    public static int CountHarakat(string s) {
+        if (s == null) return 0;
+        int n = 0;
+        foreach (char c in s) if (IsHaraka(c)) n++;
+        return n;
+    }
+
+    public static bool HasArabicLetter(string s) {
+        if (s == null) return false;
+        foreach (char c in s) if (IsArabicLetter(c)) return true;
+        return false;
+    }
+
+    // Re-attach the service's harakat to the ORIGINAL text.
+    //
+    // The Space runs remove_non_arabic() on whatever it is sent: it strips
+    // existing tashkeel and tatweel, replaces every non-letter (newlines,
+    // digits, Latin, punctuation) with a space, and collapses runs of
+    // whitespace. Its reply is therefore Arabic-letters-and-spaces only, on a
+    // single line. Pasting that back would silently delete line breaks,
+    // numbers and punctuation - so instead we walk both strings and copy each
+    // harakat onto the matching letter of the original, leaving everything
+    // else exactly as the user wrote it.
+    //
+    // Returns null if the letter sequences do not line up, which is the only
+    // honest response: a partial merge would put harakat on the wrong letters.
+    public static string Merge(string original, string diacritized, out int added) {
+        added = 0;
+        if (original == null || diacritized == null) return null;
+
+        // letters of the reply, each with the marks that follow it
+        List<char> letters = new List<char>();
+        List<string> marks = new List<string>();
+        for (int i = 0; i < diacritized.Length; i++) {
+            char c = diacritized[i];
+            if (IsArabicLetter(c)) {
+                letters.Add(c);
+                StringBuilder m = new StringBuilder();
+                int j = i + 1;
+                while (j < diacritized.Length && IsHaraka(diacritized[j])) { m.Append(diacritized[j]); j++; }
+                marks.Add(m.ToString());
+                i = j - 1;
+            } else if (IsHaraka(c)) {
+                return null;            // a mark with no letter to sit on
+            }
+            // spaces and anything else in the reply are ignored
+        }
+
+        StringBuilder outp = new StringBuilder(original.Length + letters.Count);
+        int k = 0;
+        foreach (char c in original) {
+            if (IsHaraka(c)) continue;  // the reply's marks replace any existing ones
+            if (IsArabicLetter(c)) {
+                if (k >= letters.Count) return null;        // reply ran out of letters
+                if (letters[k] != c) return null;           // letters disagree
+                outp.Append(c);
+                outp.Append(marks[k]);
+                added += marks[k].Length;
+                k++;
+            } else {
+                outp.Append(c);         // newline, digit, Latin, punctuation, tatweel
+            }
+        }
+        if (k != letters.Count) return null;                // reply had letters left over
+        return outp.ToString();
+    }
+
+    // Convenience wrapper used by the UI: engine + merge + the rules that
+    // decide whether it is worth calling out at all.
+    public static string Apply(ITashkeelEngine engine, string text, out int added) {
+        added = 0;
+        if (engine == null) throw new TashkeelException("No diacritization engine is configured.");
+        if (!HasArabicLetter(text)) throw new TashkeelException("No Arabic text to add diacritics to.");
+        string reply = engine.Diacritize(text);
+        if (reply == null || reply.Trim().Length == 0)
+            throw new TashkeelException("The diacritization service returned nothing. Try again in a moment.");
+        string merged = Merge(text, reply, out added);
+        if (merged == null)
+            throw new TashkeelException("The diacritized text did not line up with the original. Nothing was changed.");
+        return merged;
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Hugging Face Space engine (CATT only, no Shakkala fallback).
+//
+//  MohamedRashad/arabic-auto-tashkeel is a Gradio 4.27 Space, so it is NOT
+//  an Inference-API endpoint: the call is Gradio's two-step queue protocol,
+//  confirmed against the live Space and its /config:
+//    POST /call/infer_catt   {"data":[text,"Encoder-Decoder"]}  -> {"event_id":"..."}
+//    GET  /call/infer_catt/<event_id>                           -> SSE stream
+//         ... ends with:  event: complete\ndata: ["<diacritized>"]
+//  api_name infer_catt takes (Input Text, Choose Model); the model radio
+//  accepts "Encoder-Decoder" (default) or "Encoder-Only".
+//  A cold Space can answer with [""] - treated as a failure, never as
+//  "the text legitimately became empty".
+// ------------------------------------------------------------------ //
+public class HfTashkeelEngine : ITashkeelEngine {
+    public const string Host = "https://mohamedrashad-arabic-auto-tashkeel.hf.space";
+    public const string ApiName = "infer_catt";
+    public const string ModelEncoderDecoder = "Encoder-Decoder";
+
+    const string NetworkMessage = "Couldn't reach the diacritization service - check your connection.";
+
+    public int TimeoutMs = 8000;        // Spaces cold-start slower than endpoints
+    public string Model = ModelEncoderDecoder;
+    string token;                        // in memory only, never logged
+
+    public HfTashkeelEngine(string apiToken) { token = apiToken; }
+
+    public string Diacritize(string text) {
+        if (text == null) throw new TashkeelException("Nothing to diacritize.");
+        // .NET 4.x under PowerShell 5.1 can still default to TLS 1.0, which
+        // huggingface.co refuses. 3072 == Tls12 without needing the enum.
+        try { ServicePointManager.SecurityProtocol = ServicePointManager.SecurityProtocol | (SecurityProtocolType)3072; } catch (Exception) { }
+
+        Stopwatch clock = Stopwatch.StartNew();
+        string eventId = StartJob(text, clock);
+        return ReadResult(eventId, clock);
+    }
+
+    int Remaining(Stopwatch clock) {
+        int left = TimeoutMs - (int)clock.ElapsedMilliseconds;
+        if (left < 250) throw new TashkeelException(NetworkMessage);
+        return left;
+    }
+
+    HttpWebRequest NewRequest(string url, Stopwatch clock) {
+        HttpWebRequest r = (HttpWebRequest)WebRequest.Create(url);
+        r.Timeout = Remaining(clock);
+        r.ReadWriteTimeout = Remaining(clock);
+        r.UserAgent = "NassakhRTL/" + App.Version;
+        r.KeepAlive = false;
+        // The Space is public, but an access token lifts the anonymous rate
+        // limit and keeps us out of the shared queue.
+        if (!string.IsNullOrEmpty(token)) r.Headers.Add("Authorization", "Bearer " + token);
+        return r;
+    }
+
+    string StartJob(string text, Stopwatch clock) {
+        HttpWebRequest req = NewRequest(Host + "/call/" + ApiName, clock);
+        req.Method = "POST";
+        req.ContentType = "application/json";
+        string body = "{\"data\":[" + JsonString(text) + "," + JsonString(Model) + "]}";
+        byte[] bytes = Encoding.UTF8.GetBytes(body);
+        req.ContentLength = bytes.Length;
+        try {
+            using (Stream s = req.GetRequestStream()) s.Write(bytes, 0, bytes.Length);
+            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+            using (StreamReader rd = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) {
+                string json = rd.ReadToEnd();
+                string id = ExtractField(json, "event_id");
+                if (id == null || id.Length == 0) throw new TashkeelException(NetworkMessage);
+                return id;
+            }
+        } catch (TashkeelException) { throw; }
+        catch (WebException) { throw new TashkeelException(NetworkMessage); }
+        catch (Exception) { throw new TashkeelException(NetworkMessage); }
+    }
+
+    string ReadResult(string eventId, Stopwatch clock) {
+        HttpWebRequest req = NewRequest(Host + "/call/" + ApiName + "/" + eventId, clock);
+        req.Method = "GET";
+        req.Accept = "text/event-stream";
+        try {
+            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+            using (StreamReader rd = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) {
+                bool complete = false;
+                string line;
+                while ((line = rd.ReadLine()) != null) {
+                    if (clock.ElapsedMilliseconds > TimeoutMs) throw new TashkeelException(NetworkMessage);
+                    if (line.StartsWith("event:")) {
+                        string ev = line.Substring(6).Trim();
+                        if (ev == "error") throw new TashkeelException(NetworkMessage);
+                        complete = ev == "complete";
+                    } else if (complete && line.StartsWith("data:")) {
+                        return FirstStringOfArray(line.Substring(5).Trim());
+                    }
+                }
+            }
+        } catch (TashkeelException) { throw; }
+        catch (WebException) { throw new TashkeelException(NetworkMessage); }
+        catch (Exception) { throw new TashkeelException(NetworkMessage); }
+        throw new TashkeelException(NetworkMessage);
+    }
+
+    // ---- tiny JSON helpers: no serializer dependency in this build ----
+    public static string JsonString(string s) {
+        StringBuilder sb = new StringBuilder("\"");
+        foreach (char c in s) {
+            if (c == '"') sb.Append("\\\"");
+            else if (c == '\\') sb.Append("\\\\");
+            else if (c == '\n') sb.Append("\\n");
+            else if (c == '\r') sb.Append("\\r");
+            else if (c == '\t') sb.Append("\\t");
+            else if (c < ' ' || c > '~') sb.Append("\\u" + ((int)c).ToString("x4"));
+            else sb.Append(c);
+        }
+        sb.Append("\"");
+        return sb.ToString();
+    }
+
+    public static string ExtractField(string json, string field) {
+        if (json == null) return null;
+        int i = json.IndexOf("\"" + field + "\"");
+        if (i < 0) return null;
+        i = json.IndexOf(':', i);
+        if (i < 0) return null;
+        i = json.IndexOf('"', i);
+        if (i < 0) return null;
+        return DecodeJsonString(json, i, out i);
+    }
+
+    // '["text"]' -> text ; '[]' or '[""]' -> ""
+    public static string FirstStringOfArray(string json) {
+        if (json == null) return null;
+        int q = json.IndexOf('"');
+        if (q < 0) return "";
+        int end;
+        return DecodeJsonString(json, q, out end);
+    }
+
+    // reads the JSON string starting at the opening quote 'start'
+    public static string DecodeJsonString(string s, int start, out int end) {
+        StringBuilder sb = new StringBuilder();
+        int i = start + 1;
+        for (; i < s.Length; i++) {
+            char c = s[i];
+            if (c == '"') break;
+            if (c != '\\') { sb.Append(c); continue; }
+            i++;
+            if (i >= s.Length) break;
+            char e = s[i];
+            if (e == 'n') sb.Append('\n');
+            else if (e == 'r') sb.Append('\r');
+            else if (e == 't') sb.Append('\t');
+            else if (e == 'b') sb.Append('\b');
+            else if (e == 'f') sb.Append('\f');
+            else if (e == 'u' && i + 4 < s.Length) {
+                int cp = System.Convert.ToInt32(s.Substring(i + 1, 4), 16);
+                sb.Append((char)cp);
+                i += 4;
+            } else sb.Append(e);       // covers \" \\ \/
+        }
+        end = i;
+        return sb.ToString();
+    }
+}
+
+// A deterministic stand-in for the network engine. Tests use it to prove the
+// call sites go through ITashkeelEngine, and Phase 2 can model an offline
+// engine's success and failure the same way.
+public class StubTashkeelEngine : ITashkeelEngine {
+    string reply;
+    string failWith;
+    public int Calls = 0;
+    public string LastInput = null;
+
+    public static StubTashkeelEngine Returning(string r) {
+        StubTashkeelEngine e = new StubTashkeelEngine(); e.reply = r; return e;
+    }
+    public static StubTashkeelEngine Failing(string message) {
+        StubTashkeelEngine e = new StubTashkeelEngine(); e.failWith = message; return e;
+    }
+    public string Diacritize(string text) {
+        Calls++;
+        LastInput = text;
+        if (failWith != null) throw new TashkeelException(failWith);
+        return reply;
+    }
+}
+
+// ------------------------------------------------------------------ //
+//  Secret storage. DPAPI, user scope: the ciphertext is useless to any
+//  other Windows account and to anyone reading settings.ini. This is the
+//  baseline for every credential NassakhRTL stores from now on - nothing
+//  sensitive goes into the ini in plaintext.
+// ------------------------------------------------------------------ //
+public static class SecretStore {
+    public static string Protect(string plain) {
+        if (string.IsNullOrEmpty(plain)) return "";
+        try {
+            byte[] enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), null, DataProtectionScope.CurrentUser);
+            return System.Convert.ToBase64String(enc);
+        } catch (Exception) { return ""; }
+    }
+
+    // Returns "" for anything it cannot decrypt: a settings file copied from
+    // another machine or user decrypts to nothing rather than throwing.
+    public static string Unprotect(string protectedB64) {
+        if (string.IsNullOrEmpty(protectedB64)) return "";
+        try {
+            byte[] raw = System.Convert.FromBase64String(protectedB64);
+            return Encoding.UTF8.GetString(ProtectedData.Unprotect(raw, null, DataProtectionScope.CurrentUser));
+        } catch (Exception) { return ""; }
+    }
+
+    // What the user sees instead of their token.
+    public static string Mask(string token) {
+        if (string.IsNullOrEmpty(token)) return "";
+        if (token.Length <= 6) return new string('\u2022', token.Length);
+        return token.Substring(0, 3) + new string('\u2022', 8) + token.Substring(token.Length - 3);
     }
 }
 
@@ -2620,6 +2971,7 @@ public class MainForm : Form {
     const int HK_CLIPBOARD = 0xA17F;
     const int HK_FIXBOX = 0xA180;
     const int HK_RESTOREBOX = 0xA181;
+    const int HK_TASHKEEL = 0xA182;
     const int MOD_ALT = 0x0001, MOD_CONTROL = 0x0002;
 
     Theme th;
@@ -2633,6 +2985,15 @@ public class MainForm : Form {
     // they had.
     bool boxHotkey = false;
     string hkClipSpec = "Ctrl+Alt+R", hkFixSpec = "Ctrl+Alt+F", hkRestoreSpec = "Ctrl+Alt+Z";
+    // Tashkeel is probabilistic and leaves the machine, so it carries its own
+    // consent flag on top of its own toggle: enabling it without an explicit
+    // yes is not allowed, and the flag is what makes the consent one-time.
+    bool hkTashkeel = false;
+    bool tashkeelOn = false, tashkeelConsent = false;
+    string hkTashkeelSpec = "Ctrl+Alt+T";
+    string hfToken = "";                 // plaintext in memory only; DPAPI at rest
+    ITashkeelEngine tashkeelEngine = null;
+    bool tashkeelBusy = false;
     bool watchGuard = false;
 
     // ---- shell ----
@@ -2710,6 +3071,11 @@ public class MainForm : Form {
     CardPanel cardOpts, cardSpell, cardPrefs, cardHotkeys;
     Label lblSetTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblThemeCap, lblSetNote;
     Label lblHkCap, lblHkNote, lblHkToggleCap, lblHkClipCap, lblHkFixCap, lblHkRestoreCap, lblHkStatus;
+    CardPanel cardTashkeel;
+    Label lblTkCap, lblTkToggleCap, lblTkNote, lblTkKeyCap, lblTkTokenCap, lblTkStatus;
+    ToggleSwitch swTashkeel;
+    TextBox hkTashkeelBox, tokenBox;
+    PillButton bTokenSave;
     ToggleSwitch swDark, swBox;
     TextBox hkClipBox, hkFixBox, hkRestoreBox;
 
@@ -3364,6 +3730,7 @@ public class MainForm : Form {
         lblHkRestoreCap = Cap(cardHotkeys, "Restore text box", 9F, FontStyle.Regular);
         hkRestoreBox = HkBox(cardHotkeys);
         lblHkStatus = Cap(cardHotkeys, "", 8.25F, FontStyle.Regular);
+        BuildTashkeelCard();
         lblHkStatus.AutoSize = false;
         tips.SetToolTip(swBox, "Registers the fix / restore text-box hotkeys");
         tips.SetToolTip(hkClipBox, "Click, then press the key combination you want");
@@ -3422,8 +3789,97 @@ public class MainForm : Form {
         lblHkRestoreCap.Location = new Point(18, rowY + 36); hkRestoreBox.SetBounds(150, rowY + 32, 130, 24);
         lblHkStatus.SetBounds(18, rowY + 66, cw - 44, 20);
 
-        lblSetNote.SetBounds(pad, 754, W - pad * 2, 36);
-        pgSettings.AutoScrollMinSize = new Size(0, 800);
+        cardTashkeel.SetBounds(pad - 6, 756, cw, 250);
+        lblTkCap.Location = new Point(18, 16);
+        swTashkeel.Location = new Point(18, 46);
+        lblTkToggleCap.Location = new Point(72, 49);
+        lblTkNote.SetBounds(18, 78, cw - 44, 62);
+        lblTkKeyCap.Location = new Point(18, 152);
+        hkTashkeelBox.SetBounds(150, 148, 130, 24);
+        lblTkTokenCap.Location = new Point(300, 152);
+        tokenBox.SetBounds(400, 148, 190, 24);
+        bTokenSave.SetBounds(600, 145, 96, 30);
+        lblTkStatus.SetBounds(18, 188, cw - 44, 40);
+
+        lblSetNote.SetBounds(pad, 1020, W - pad * 2, 36);
+        pgSettings.AutoScrollMinSize = new Size(0, 1070);
+    }
+
+    void BuildTashkeelCard() {
+        cardTashkeel = new CardPanel();
+        pgSettings.Controls.Add(cardTashkeel);
+        lblTkCap = Cap(cardTashkeel, "Arabic diacritics (tashkeel)", 11F, FontStyle.Bold);
+        swTashkeel = new ToggleSwitch();
+        cardTashkeel.Controls.Add(swTashkeel);
+        lblTkToggleCap = Cap(cardTashkeel, "Add Arabic diacritics (tashkeel)", 9.5F, FontStyle.Bold);
+        lblTkNote = Cap(cardTashkeel,
+            "Sends the selected Arabic text over the internet to a Hugging Face service to guess its harakat. "
+            + "Unlike the RTL fix this is a prediction, not a certainty: wrong diacritics change meaning, so read the result before you keep it. "
+            + "There is no offline option in this build. Off unless you turn it on.", 8.25F, FontStyle.Regular);
+        lblTkNote.AutoSize = false;
+        lblTkKeyCap = Cap(cardTashkeel, "Add tashkeel", 9F, FontStyle.Regular);
+        hkTashkeelBox = HkBox(cardTashkeel);
+        lblTkTokenCap = Cap(cardTashkeel, "Hugging Face token", 9F, FontStyle.Regular);
+        tokenBox = new TextBox();
+        tokenBox.BorderStyle = BorderStyle.FixedSingle;
+        tokenBox.UseSystemPasswordChar = true;
+        cardTashkeel.Controls.Add(tokenBox);
+        bTokenSave = QBtn(cardTashkeel, "Save token", PillButton.Secondary, 96);
+        bTokenSave.Height = 30;
+        lblTkStatus = Cap(cardTashkeel, "", 8.25F, FontStyle.Regular);
+        lblTkStatus.AutoSize = false;
+        tips.SetToolTip(swTashkeel, "Asks for consent before it is enabled");
+        tips.SetToolTip(tokenBox, "Optional. Lifts the anonymous rate limit. Stored encrypted with Windows DPAPI, never in plain text.");
+        tips.SetToolTip(hkTashkeelBox, "Click, then press the key combination you want");
+    }
+
+    // Explicit, separate consent. Deliberately NOT merged with the hotkey
+    // opt-in: that one is about typing into another app, this one is about
+    // text leaving the machine.
+    bool AskTashkeelConsent() {
+        string msg =
+            "Add Arabic diacritics (tashkeel)\r\n\r\n"
+            + "Turning this on means that, each time you press the tashkeel hotkey, the Arabic text "
+            + "in the focused text box is SENT OVER THE INTERNET to a third-party service "
+            + "(the MohamedRashad/arabic-auto-tashkeel Space on Hugging Face) to be diacritized.\r\n\r\n"
+            + "\u2022  Your text leaves this computer. Do not use it on confidential material.\r\n"
+            + "\u2022  There is NO offline option in this build.\r\n"
+            + "\u2022  Diacritization is a prediction. Wrong harakat change meaning, not just appearance \u2014 always read the result.\r\n"
+            + "\u2022  NassakhRTL does not log or store the text it sends or receives.\r\n"
+            + "\u2022  Nothing is sent until you press the hotkey. Ctrl+Z in Affinity undoes the change.\r\n\r\n"
+            + "Enable it?";
+        return MessageBox.Show(this, msg, "Send text to an external service?",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+    }
+
+    void ApplyTashkeelSettings() {
+        if (loadingUi) return;
+        if (swTashkeel.Checked && !tashkeelConsent) {
+            if (AskTashkeelConsent()) {
+                tashkeelConsent = true;
+            } else {
+                loadingUi = true; swTashkeel.Checked = false; loadingUi = false;
+                tashkeelOn = false;
+                ShowTashkeelStatus();
+                return;
+            }
+        }
+        tashkeelOn = swTashkeel.Checked;
+        hkTashkeelSpec = BoxFix.Normalize(hkTashkeelBox.Text, hkTashkeelSpec);
+        tashkeelEngine = null;           // rebuilt by RegisterHotkeys with the current token
+        RegisterHotkeys();
+        ShowTashkeelStatus();
+        SaveSettings();
+    }
+
+    void ShowTashkeelStatus() {
+        if (lblTkStatus == null) return;
+        string tok = hfToken.Length > 0
+            ? "Token stored (" + SecretStore.Mask(hfToken) + "), encrypted with Windows DPAPI."
+            : "No token: using the anonymous queue, which can be slower or rate-limited.";
+        if (!tashkeelOn) lblTkStatus.Text = "Off. Nothing is sent anywhere. " + tok;
+        else if (!hkTashkeel) lblTkStatus.Text = "On, but " + hkTashkeelSpec + " could not be registered \u2014 another application holds it. " + tok;
+        else lblTkStatus.Text = "On: " + hkTashkeelSpec + " diacritizes the focused Affinity text box. " + tok;
     }
 
     // A read-only box that turns the next key chord pressed into a hotkey
@@ -3473,7 +3929,11 @@ public class MainForm : Form {
         hkFixBox.Text = hkFixSpec;
         hkRestoreBox.Text = hkRestoreSpec;
         swBox.Checked = boxHotkey;
+        hkTashkeelBox.Text = hkTashkeelSpec;
+        swTashkeel.Checked = tashkeelOn && tashkeelConsent;
+        tokenBox.Text = hfToken.Length > 0 ? new string('\u2022', 12) : "";
         loadingUi = false;
+        ShowTashkeelStatus();
     }
 
     // ---------------- right statistics pane ----------------
@@ -3644,6 +4104,23 @@ public class MainForm : Form {
             ConvertCopy();
         };
         swBox.CheckedChanged += delegate(object s, EventArgs e) { ApplyHotkeySettings(); };
+        swTashkeel.CheckedChanged += delegate(object s, EventArgs e) { ApplyTashkeelSettings(); };
+        bTokenSave.Click += delegate(object s, EventArgs e) {
+            string t = tokenBox.Text.Trim();
+            if (t.Length == 0 || t.IndexOf('\u2022') >= 0) {   // unchanged mask = clear it
+                hfToken = "";
+            } else {
+                hfToken = t;
+            }
+            loadingUi = true;
+            tokenBox.Text = hfToken.Length > 0 ? new string('\u2022', 12) : "";
+            loadingUi = false;
+            tashkeelEngine = null;
+            RegisterHotkeys();
+            ShowTashkeelStatus();
+            SaveSettings();
+            Say(hfToken.Length > 0 ? "\u2713 Token saved, encrypted with Windows DPAPI." : "Token cleared.", true);
+        };
         bTheme.Click += delegate(object s, EventArgs e) { dark = !dark; swDark.Checked = dark; ApplyTheme(); };
         swDark.CheckedChanged += delegate(object s, EventArgs e) {
             if (loadingUi || dark == swDark.Checked) return;
@@ -4228,6 +4705,10 @@ public class MainForm : Form {
                 else if (key == "hk.clip") hkClipSpec = BoxFix.Normalize(val, hkClipSpec);
                 else if (key == "hk.fix") hkFixSpec = BoxFix.Normalize(val, hkFixSpec);
                 else if (key == "hk.restore") hkRestoreSpec = BoxFix.Normalize(val, hkRestoreSpec);
+                else if (key == "hk.tashkeel") hkTashkeelSpec = BoxFix.Normalize(val, hkTashkeelSpec);
+                else if (key == "tashkeel") tashkeelOn = val == "1";
+                else if (key == "tashkeel.consent") tashkeelConsent = val == "1";
+                else if (key == "hf.token") hfToken = SecretStore.Unprotect(val);
                 else if (key == "win") {
                     string[] p = val.Split(',');
                     if (p.Length == 4) {
@@ -4267,6 +4748,11 @@ public class MainForm : Form {
             sb.AppendLine("hk.clip=" + hkClipSpec);
             sb.AppendLine("hk.fix=" + hkFixSpec);
             sb.AppendLine("hk.restore=" + hkRestoreSpec);
+            sb.AppendLine("hk.tashkeel=" + hkTashkeelSpec);
+            sb.AppendLine("tashkeel=" + (tashkeelOn ? "1" : "0"));
+            sb.AppendLine("tashkeel.consent=" + (tashkeelConsent ? "1" : "0"));
+            // DPAPI ciphertext, user scope - never the raw token
+            sb.AppendLine("hf.token=" + SecretStore.Protect(hfToken));
             Rectangle r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
             sb.AppendLine("win=" + r.X + "," + r.Y + "," + r.Width + "," + r.Height);
             foreach (KeyValuePair<string, string> kv in presets) sb.AppendLine("preset." + kv.Key + "=" + kv.Value);
@@ -4306,7 +4792,7 @@ public class MainForm : Form {
         foreach (FlatCheck c in new FlatCheck[] { cDigits, cHidden, cDia, cTat, cPunct, cAlef, cYaTa, cTop, cWrap, cBak }) {
             c.Th = th; c.Invalidate();
         }
-        foreach (ToggleSwitch t in new ToggleSwitch[] { swWatch, swLive, swDark, swBox }) {
+        foreach (ToggleSwitch t in new ToggleSwitch[] { swWatch, swLive, swDark, swBox, swTashkeel }) {
             t.Th = th; t.Invalidate();
         }
         foreach (DonutStat d in new DonutStat[] { dChars, dFiles, dItems }) {
@@ -4314,7 +4800,7 @@ public class MainForm : Form {
         }
         foreach (CardPanel c in new CardPanel[] { cardInput, cardPreview, cardDrop, cardList, cardDiff,
                 cardWatchTop, cardLog, cardHistList, cardHistPrev, cardOpts, cardSpell, cardPrefs,
-                cardStats, cardLive, cardTips, cardHotkeys }) {
+                cardStats, cardLive, cardTips, cardHotkeys, cardTashkeel }) {
             c.Th = th; c.BackColor = th.Bg; c.Invalidate();
         }
         foreach (Panel p in new Panel[] { pgQuick, pgFiles, pgWatch, pgHistory, pgSettings }) p.BackColor = th.Bg;
@@ -4322,18 +4808,20 @@ public class MainForm : Form {
         foreach (PreviewPanel p in new PreviewPanel[] { preview, fixedPrev, histFixed }) {
             p.Th = th; p.BackColor = th.Card; p.Invalidate();
         }
-        foreach (TextBox t in new TextBox[] { input, origBox, watchDir, histOrig, hkClipBox, hkFixBox, hkRestoreBox }) {
+        foreach (TextBox t in new TextBox[] { input, origBox, watchDir, histOrig, hkClipBox, hkFixBox, hkRestoreBox, hkTashkeelBox, tokenBox }) {
             t.BackColor = th.Card; t.ForeColor = th.Text;
         }
         watchDir.BackColor = th.InputBg;
         foreach (Label l in new Label[] { lblQuickTitle, lblFilesTitle, lblWatchTitle, lblHistTitle, lblSetTitle,
-                lblStatsTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblHkCap, lblHkToggleCap, lblLiveCap, lblTipsTitle, lblWatchToggleCap }) {
+                lblStatsTitle, lblOptsCap, lblSpellCap, lblPrefsCap, lblHkCap, lblHkToggleCap, lblLiveCap, lblTipsTitle, lblWatchToggleCap,
+                lblTkCap, lblTkToggleCap }) {
             l.ForeColor = th.Text; l.BackColor = Color.Transparent;
         }
         foreach (Label l in new Label[] { lblQuickSub, lblInput, lblPreview, lblOrig, lblFixed, lblFileNote,
                 lblLogCap, lblWatchNote, lblWatchCap, lblDropHint, lblFile, lblHistNote, lblHistOrig,
                 lblHistFixed, lblSetNote, lblPresetCap, lblThemeCap, lblWrapCap, lblLiveSub, lblTipsBody,
                 lblHkNote, lblHkClipCap, lblHkFixCap, lblHkRestoreCap, lblHkStatus,
+                lblTkNote, lblTkKeyCap, lblTkTokenCap, lblTkStatus,
                 watchStatus, fileStatus }) {
             l.ForeColor = th.Sub; l.BackColor = Color.Transparent;
         }
@@ -4371,8 +4859,9 @@ public class MainForm : Form {
             if (hkClip) UnregisterHotKey(Handle, HK_CLIPBOARD);
             if (hkFix) UnregisterHotKey(Handle, HK_FIXBOX);
             if (hkRestore) UnregisterHotKey(Handle, HK_RESTOREBOX);
+            if (hkTashkeel) UnregisterHotKey(Handle, HK_TASHKEEL);
         } catch (Exception) { }
-        hkClip = hkFix = hkRestore = false;
+        hkClip = hkFix = hkRestore = hkTashkeel = false;
     }
 
     bool RegisterSpec(int id, string spec) {
@@ -4390,6 +4879,13 @@ public class MainForm : Form {
         if (boxHotkey) {
             hkFix = RegisterSpec(HK_FIXBOX, hkFixSpec);
             hkRestore = RegisterSpec(HK_RESTOREBOX, hkRestoreSpec);
+        }
+        // consent is a hard precondition: no consent, no engine, no hotkey
+        if (tashkeelOn && tashkeelConsent) {
+            hkTashkeel = RegisterSpec(HK_TASHKEEL, hkTashkeelSpec);
+            if (tashkeelEngine == null) tashkeelEngine = new HfTashkeelEngine(hfToken);
+        } else {
+            tashkeelEngine = null;
         }
         string msg = "Ready.";
         if (hkClip) msg += " " + hkClipSpec + " = fix clipboard.";
@@ -4421,6 +4917,7 @@ public class MainForm : Form {
             if (id == HK_CLIPBOARD) FixClipboard();
             else if (id == HK_FIXBOX) FixActiveTextBox(false);
             else if (id == HK_RESTOREBOX) FixActiveTextBox(true);
+            else if (id == HK_TASHKEEL) DiacritizeActiveTextBox();
         }
         base.WndProc(ref m);
     }
@@ -4507,12 +5004,100 @@ public class MainForm : Form {
         else
             TrayTip("NassakhRTL", "\u2713 Fixed " + plan.Changed + " characters in Affinity. " + hkRestoreSpec + " undoes it.", true);
     }
+
+    // Tashkeel is a DIFFERENT action from the RTL fix and never folded into
+    // it: it is probabilistic, it leaves the machine, and it is reviewable.
+    // Shape mirrors FixActiveTextBox (foreground check, clipboard keeper,
+    // ^a ^c, paste back, restore) so Affinity's own Ctrl+Z still undoes it,
+    // but the network call runs off the UI thread - an 8s cold start must not
+    // freeze the window. Clipboard touches stay on the UI thread (STA).
+    void DiacritizeActiveTextBox() {
+        if (tashkeelBusy) { TrayTip("NassakhRTL", "Still waiting for the previous diacritization.", false); return; }
+        if (!tashkeelOn || !tashkeelConsent || tashkeelEngine == null) {
+            TrayTip("NassakhRTL", "Tashkeel is off. Turn it on in Settings first.", false);
+            return;
+        }
+        string fgName = ForegroundProcessName();
+        if (!BoxFix.IsAffinityProcessName(fgName)) {
+            TrayTip("NassakhRTL", "Affinity isn't the active window" + (fgName.Length > 0 ? " (" + fgName + " is)" : "") + ". Nothing was changed.", false);
+            return;
+        }
+        if (!WaitModifiersUp(1500)) { TrayTip("NassakhRTL", "Release the hotkey first, then try again.", false); return; }
+
+        string savedClip = ClipboardKeeper.Save();
+        try { Clipboard.Clear(); } catch (Exception) { }
+        try {
+            SendKeys.SendWait("^a");
+            Thread.Sleep(80);
+            SendKeys.SendWait("^c");
+            Thread.Sleep(220);
+        } catch (Exception) { ClipboardKeeper.Restore(savedClip); return; }
+
+        string captured = null;
+        try { if (Clipboard.ContainsText()) captured = Clipboard.GetText(); } catch (Exception) { }
+        captured = Engine.NormalizeBreaks(captured);
+
+        if (captured == null || captured.Trim().Length == 0) {
+            ClipboardKeeper.Restore(savedClip);
+            TrayTip("NassakhRTL", "No text captured. Click inside a text box (text edit mode) first.", false);
+            return;
+        }
+        if (Engine.LooksConverted(captured)) {
+            ClipboardKeeper.Restore(savedClip);
+            TrayTip("NassakhRTL", "This text box is already converted for Affinity. Restore it first, then add tashkeel.", false);
+            return;
+        }
+        if (!Tashkeel.HasArabicLetter(captured)) {
+            ClipboardKeeper.Restore(savedClip);
+            TrayTip("NassakhRTL", "No Arabic text to add diacritics to.", false);
+            return;
+        }
+
+        ITashkeelEngine engine = tashkeelEngine;   // capture: settings may change mid-flight
+        tashkeelBusy = true;
+        TrayTip("NassakhRTL", "Adding tashkeel\u2026 sending this text to the Hugging Face service.", true);
+        ThreadPool.QueueUserWorkItem(delegate(object ignored) {
+            string merged = null, error = null;
+            int added = 0;
+            try { merged = Tashkeel.Apply(engine, captured, out added); }
+            catch (TashkeelException tx) { error = tx.Message; }
+            catch (Exception) { error = "Couldn't reach the diacritization service - check your connection."; }
+            FinishTashkeel(savedClip, merged, added, error);
+        });
+    }
+
+    // Back on the UI thread: paste (or not), always restore the clipboard.
+    void FinishTashkeel(string savedClip, string merged, int added, string error) {
+        if (InvokeRequired) {
+            try { BeginInvoke(new Action<string, string, int, string>(FinishTashkeel), savedClip, merged, added, error); }
+            catch (Exception) { }
+            return;
+        }
+        try {
+            if (error != null || merged == null) {
+                ClipboardKeeper.Restore(savedClip);      // original text left untouched
+                TrayTip("NassakhRTL", error != null ? error : "Tashkeel failed. Nothing was changed.", false);
+                return;
+            }
+            try {
+                Clipboard.SetText(merged);
+                Thread.Sleep(60);
+                SendKeys.SendWait("^v");
+                Thread.Sleep(160);
+            } catch (Exception) { }
+            ClipboardKeeper.Restore(savedClip);
+            System.Media.SystemSounds.Asterisk.Play();
+            TrayTip("NassakhRTL", "\u2713 Added " + added + " diacritics. Check them \u2014 Ctrl+Z in Affinity undoes this.", true);
+        } finally {
+            tashkeelBusy = false;
+        }
+    }
 }
 }
 
 '@
 
-Add-Type -TypeDefinition $source -ReferencedAssemblies @('System.Windows.Forms','System.Drawing','System.Core','System.Xml')
+Add-Type -TypeDefinition $source -ReferencedAssemblies @('System.Windows.Forms','System.Drawing','System.Core','System.Xml','System.Security')
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $form = New-Object RTLFixer.MainForm

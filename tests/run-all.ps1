@@ -14,7 +14,8 @@ $files = @(
     'svg-roundtrip.ps1',
     'softwrap-repro.ps1',
     'settings-migration.ps1',
-    'boxfix.ps1'
+    'boxfix.ps1',
+    'tashkeel.ps1'
 )
 $failed = @()
 foreach ($f in $files) {

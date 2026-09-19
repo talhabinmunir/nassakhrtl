@@ -6,6 +6,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.3.0] — 2026-09-19
+
+### Added — optional Arabic diacritics (tashkeel), online only
+
+A new, separate action: press the tashkeel hotkey (**Ctrl+Alt+T** by default,
+remappable) and the Arabic in the focused Affinity text box comes back with
+harakat. It is **off by default** and deliberately not folded into the RTL fix,
+because it is a different kind of operation:
+
+- **The RTL fix is deterministic; tashkeel is a guess.** Wrong harakat change
+  meaning, not just appearance. The confirmation says so and asks you to check.
+- **It leaves your computer.** The text is sent to the
+  `MohamedRashad/arabic-auto-tashkeel` Space on Hugging Face. Enabling the
+  toggle raises a consent dialog that says this in plain words, names the
+  service, and states that there is no offline option in this build. That
+  consent is separate from the hotkey opt-in added in 2.2.0 and is not merged
+  with it.
+- **Undo is Affinity's own.** The result is pasted like any other paste, so one
+  Ctrl+Z reverts it.
+- Uses the Space's **CATT** method only (Encoder-Decoder). There is no
+  automatic fall-back to its Shakkala option: if CATT fails, the whole
+  operation fails and your text is untouched.
+- ~8s timeout. On timeout, error or no connectivity you get
+  "Couldn't reach the diacritization service - check your connection." and
+  nothing is changed. No silent fallback of any kind.
+- The text sent and received is never logged or written to disk.
+
+### Added — encrypted credential storage
+
+An optional Hugging Face token can be stored to lift the anonymous rate limit.
+It is encrypted at rest with **Windows DPAPI** (`ProtectedData`, user scope)
+and only the ciphertext reaches `settings.ini`. **This is the baseline for any
+credential NassakhRTL stores from now on**; nothing sensitive goes into the ini
+in plain text. A settings file copied to another machine or user decrypts to
+nothing rather than failing.
+
+### Notes
+
+- **The service rewrites what you send it.** Confirmed against the live Space:
+  it strips existing tashkeel and tatweel, replaces every non-Arabic character
+  (line breaks, digits, Latin, punctuation) with a space, and collapses
+  whitespace — a two-line test input came back as one line with `2024` and
+  `(Hello)` gone. Pasting its reply back verbatim would therefore have deleted
+  line structure, the exact failure class fixed in 2.1.1 and 2.2.0. Instead
+  NassakhRTL re-attaches the returned harakat onto **your** text letter by
+  letter, so newlines, digits, Latin and punctuation survive untouched. If the
+  letters do not line up the operation fails rather than guessing.
+- `ITashkeelEngine` is the seam an offline engine will plug into in Phase 2;
+  call sites depend only on the interface, and a test asserts that.
+
+---
+
 ## [2.2.0] — 2026-09-18
 
 ### Changed — the in-Affinity text-box hotkey is now guarded and opt-in
